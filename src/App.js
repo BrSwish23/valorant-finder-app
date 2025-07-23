@@ -75,6 +75,35 @@ function App() {
   }, []); // Empty dependency array - this should only run once
 
   // Auth handlers
+  // Utility: Map Firebase Auth error codes to user-friendly messages
+  const getAuthErrorMessage = (code, context = 'signin') => {
+    // context: 'signin' | 'signup' | 'google'
+    switch (code) {
+      // Sign Up
+      case 'auth/email-already-in-use':
+        return 'The email address is already in use. Please sign in or use a different email.';
+      case 'auth/weak-password':
+        return 'The password is too weak. Please choose a stronger password (min. 6 characters).';
+      case 'auth/invalid-email':
+        return 'The email address is not valid. Please check the format.';
+      // Sign In
+      case 'auth/user-not-found':
+        return 'No account found with this email. Please sign up or check your email.';
+      case 'auth/wrong-password':
+        return 'Incorrect password. Please try again or use the "Forgot Password" option.';
+      // Google
+      case 'auth/popup-closed-by-user':
+        return 'Google sign-in was canceled.';
+      // Common
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your connection and try again.';
+      default:
+        if (context === 'signup') return 'Sign up failed. Please try again.';
+        if (context === 'google') return 'Google sign-in failed. Please try again.';
+        return 'Sign in failed. Please try again.';
+    }
+  };
+
   const handleEmailSignIn = async () => {
     setAuthError('');
     setAuthLoading(true);
@@ -83,7 +112,7 @@ function App() {
       // Don't set showAuthModal here - let auth state change handle it
     } catch (err) {
       console.error('Email sign in error:', err);
-      setAuthError(err.message);
+      setAuthError(getAuthErrorMessage(err.code, 'signin'));
     } finally {
       setAuthLoading(false);
     }
@@ -97,7 +126,7 @@ function App() {
       // Don't set showAuthModal here - let auth state change handle it
     } catch (err) {
       console.error('Email sign up error:', err);
-      setAuthError(err.message);
+      setAuthError(getAuthErrorMessage(err.code, 'signup'));
     } finally {
       setAuthLoading(false);
     }
@@ -112,7 +141,7 @@ function App() {
       // Don't set showAuthModal here - let auth state change handle it
     } catch (err) {
       console.error('Google sign in error:', err);
-      setAuthError(err.message);
+      setAuthError(getAuthErrorMessage(err.code, 'google'));
     } finally {
       setAuthLoading(false);
     }
@@ -610,14 +639,14 @@ function App() {
           <div className="flex gap-2 mb-4">
             <button 
               className={`px-4 py-2 rounded-lg font-bold ${authMode === 'signin' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`} 
-              onClick={() => setAuthMode('signin')}
+              onClick={() => { setAuthMode('signin'); setAuthError(''); }}
               disabled={authLoading}
             >
               Sign In
             </button>
             <button 
               className={`px-4 py-2 rounded-lg font-bold ${authMode === 'signup' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`} 
-              onClick={() => setAuthMode('signup')}
+              onClick={() => { setAuthMode('signup'); setAuthError(''); }}
               disabled={authLoading}
             >
               Sign Up
@@ -628,7 +657,7 @@ function App() {
             type="email"
             placeholder="Email"
             value={authEmail}
-            onChange={e => setAuthEmail(e.target.value)}
+            onChange={e => { setAuthEmail(e.target.value); setAuthError(''); }}
             autoComplete="username"
             disabled={authLoading}
           />
@@ -637,11 +666,11 @@ function App() {
             type="password"
             placeholder="Password"
             value={authPassword}
-            onChange={e => setAuthPassword(e.target.value)}
+            onChange={e => { setAuthPassword(e.target.value); setAuthError(''); }}
             autoComplete="current-password"
             disabled={authLoading}
           />
-          {authError && <div className="text-red-400 text-xs mb-2">{authError}</div>}
+          {authError && <div className="text-red-400 text-xs mb-2 font-semibold">{authError}</div>}
           <div className="flex flex-col gap-2 mt-2">
             {authMode === 'signin' ? (
               <button 
