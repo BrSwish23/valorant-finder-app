@@ -812,6 +812,75 @@ function App() {
         {/* Modals and overlays remain as before */}
         {/* ... Username Modal, Chat Modal, Requests Modal ... */}
       </div>
+      {/* Requests Modal */}
+      {showRequestsModal && incomingRequests.length > 0 && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-60">
+          <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-700">
+            <h3 className="text-lg font-bold mb-4 text-red-400">Incoming Chat Request</h3>
+            {incomingRequests.map((req) => (
+              <div key={req.id} className="mb-4 p-3 rounded-lg bg-gray-700 flex flex-col gap-2">
+                <span className="text-white font-semibold">From: <span className="text-green-400">{req.senderUsername}</span></span>
+                <div className="flex gap-2 mt-2">
+                  <button 
+                    className="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-500 font-bold" 
+                    onClick={() => handleAcceptRequest(req)}
+                  >
+                    Accept
+                  </button>
+                  <button 
+                    className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-500 font-bold" 
+                    onClick={() => handleDeclineRequest(req)}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Chat Modal */}
+      {activeChat && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-70">
+          <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700 flex flex-col h-[70vh]">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-blue-400">Chat</h3>
+              <button className="text-white text-2xl font-bold" onClick={() => setActiveChat(null)}>&times;</button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-gray-800 rounded-lg p-3 mb-4">
+              {chatMessages.length === 0 ? (
+                <div className="text-gray-400 text-center">No messages yet.</div>
+              ) : (
+                <ul>
+                  {chatMessages.map((msg, idx) => (
+                    <li key={idx} className="mb-2">
+                      <span className="font-mono text-green-400">{msg.senderUsername}:</span> <span className="text-white">{msg.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-lg p-2 bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                type="text"
+                placeholder="Type a message..."
+                value={chatMessage}
+                onChange={e => setChatMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSendMessage(); }}
+                disabled={chatLoading}
+              />
+              <button
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-60"
+                onClick={handleSendMessage}
+                disabled={chatLoading || !chatMessage.trim()}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
