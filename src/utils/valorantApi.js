@@ -1,5 +1,13 @@
-// Valorant API utility functions using HenrikDev API with improved CORS handling
+// Valorant API utility functions using free CORS proxies
 import API_CONFIG from '../config/apiConfig';
+
+// Free CORS proxy services (no cost, no signup required)
+const CORS_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://thingproxy.freeboard.io/fetch/',
+  'https://api.codetabs.com/v1/proxy?quest=',
+  'https://cors-anywhere-me.herokuapp.com/',
+];
 
 // Extract profile image URL from various API response structures
 const extractProfileImageUrl = (apiData) => {
@@ -89,128 +97,82 @@ const formatRankForDisplay = (rank) => {
   return String(rank);
 };
 
-// Validate Valorant profile with enhanced data extraction from MMR API
+// Validate Valorant profile using free CORS proxies
 const validateValorantProfile = async (valorantName, valorantTag) => {
   console.log(`🚀 Starting profile validation for ${valorantName}#${valorantTag}`);
   
-  // Updated CORS proxies list with more reliable options
-  const corsProxies = [
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?',
-    'https://cors-anywhere.herokuapp.com/',
-    'https://thingproxy.freeboard.io/fetch/',
-  ];
-
-  let lastError = null;
-  let proxyAttempts = [];
-
-  for (let i = 0; i < corsProxies.length; i++) {
-    const proxy = corsProxies[i];
-    const attemptStartTime = Date.now();
+  const baseUrl = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/${encodeURIComponent(valorantName)}/${encodeURIComponent(valorantTag)}`;
+  
+  // Try each CORS proxy
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    const proxy = CORS_PROXIES[i];
+    let url;
+    
+    // Different proxies have different URL formats
+    if (proxy.includes('allorigins')) {
+      url = proxy + encodeURIComponent(baseUrl);
+    } else if (proxy.includes('codetabs')) {
+      url = proxy + encodeURIComponent(baseUrl);
+    } else {
+      url = proxy + baseUrl;
+    }
     
     try {
-      const baseUrl = `${API_CONFIG.API_BASE_URL}/mmr/AP/${valorantName}/${valorantTag}`;
-      const url = proxy + encodeURIComponent(baseUrl);
+      console.log(`📡 Attempting proxy ${i + 1}/${CORS_PROXIES.length}: ${proxy}`);
       
-      console.log(`🔄 Attempt ${i + 1}/${corsProxies.length}: Trying proxy ${proxy}`);
-      console.log(`📡 Full URL: ${url}`);
-
-      const requestOptions = {
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'Authorization': API_CONFIG.VALORANT_API_KEY,
           'Content-Type': 'application/json',
         }
-      };
-
-      // Special handling for different proxies
-      if (proxy.includes('allorigins.win')) {
-        // allorigins doesn't forward headers well, so we'll skip authorization for this one
-        delete requestOptions.headers['Authorization'];
-      } else {
-        requestOptions.headers['X-Requested-With'] = 'XMLHttpRequest';
-      }
-
-      console.log('📤 Request options:', requestOptions);
-
-      const response = await fetch(url, requestOptions);
-      const responseTime = Date.now() - attemptStartTime;
-      
-      console.log(`📥 Response status: ${response.status} ${response.statusText} (${responseTime}ms)`);
+      });
 
       if (response.ok) {
-        const responseText = await response.text();
-        console.log('📄 Raw response preview:', responseText.substring(0, 200) + '...');
+        let data = await response.json();
         
-        let apiResponseData;
-        try {
-          apiResponseData = JSON.parse(responseText);
-        } catch (parseError) {
-          console.warn('❌ JSON parse error:', parseError);
-          proxyAttempts.push({ proxy, status: 'JSON_PARSE_ERROR', error: parseError.message, responseTime });
-          continue;
+        // Some proxies wrap the response, extract the actual data
+        if (data.contents) {
+          data = JSON.parse(data.contents);
+        } else if (data.data) {
+          data = data.data;
         }
-
-        console.log('✅ Profile validation successful via:', proxy);
-        console.log('📊 API Response structure:', Object.keys(apiResponseData));
         
-        if (!apiResponseData || !apiResponseData.data) {
-          console.warn('⚠️ Invalid API response structure - missing data property');
-          console.log('📋 Full response:', apiResponseData);
-          proxyAttempts.push({ proxy, status: 'INVALID_STRUCTURE', responseTime });
-          continue;
-        }
-
-        const rank = extractRankFromApiData(apiResponseData.data);
-        const profilePhotoUrl = extractProfileImageUrl(apiResponseData.data);
+        console.log(`✅ Success with proxy ${i + 1}:`, data);
         
-        // Extract lifetime statistics from by_season data
-        const lifetimeStats = extractLifetimeStatsFromMmr(apiResponseData.data);
-
-        console.log('✅ Extracted profile data:', {
-          rank,
-          profilePhotoUrl: profilePhotoUrl ? 'Found' : 'Not found',
-          lifetimeWins: lifetimeStats.lifetimeWins,
-          lifetimeGamesPlayed: lifetimeStats.lifetimeGamesPlayed
-        });
-
-        proxyAttempts.push({ proxy, status: 'SUCCESS', responseTime });
-        console.log('📊 Proxy attempt summary:', proxyAttempts);
-
-        return {
-          isValid: true,
-          valorantRank: rank,
-          profilePhotoUrl: profilePhotoUrl,
+        // Extract the data you need
+        const lifetimeStats = extractLifetimeStatsFromMmr(data);
+        const profileData = {
+          valorantRank: extractRankFromApiData(data),
+          profilePhotoUrl: extractProfileImageUrl(data),
           lifetimeWins: lifetimeStats.lifetimeWins,
           lifetimeGamesPlayed: lifetimeStats.lifetimeGamesPlayed
         };
-      } else {
-        const errorText = await response.text();
-        console.warn(`❌ HTTP ${response.status} via ${proxy}:`, errorText.substring(0, 100));
-        lastError = `HTTP ${response.status}: ${response.statusText}`;
-        proxyAttempts.push({ proxy, status: `HTTP_${response.status}`, error: errorText.substring(0, 100), responseTime });
+        
+        console.log('✅ Profile validation successful:', {
+          rank: profileData.valorantRank,
+          hasProfilePhoto: !!profileData.profilePhotoUrl,
+          lifetimeWins: profileData.lifetimeWins,
+          lifetimeGamesPlayed: profileData.lifetimeGamesPlayed
+        });
+        
+        return profileData;
       }
     } catch (error) {
-      const responseTime = Date.now() - attemptStartTime;
-      console.warn(`❌ Network error via ${proxy}:`, error.message);
-      lastError = error.message;
-      proxyAttempts.push({ proxy, status: 'NETWORK_ERROR', error: error.message, responseTime });
+      console.warn(`❌ Proxy ${i + 1} failed:`, error.message);
+      if (i === CORS_PROXIES.length - 1) {
+        // Provide user-friendly error messages
+        if (error.message.includes('404')) {
+          throw new Error('Player not found. Please check your Valorant Name and Tag ID.');
+        } else if (error.message.includes('500')) {
+          throw new Error('Validation service is temporarily unavailable. Please try again later.');
+        } else if (error.message.includes('Failed to fetch')) {
+          throw new Error('Network error. Please check your internet connection and try again.');
+        } else {
+          throw new Error('All CORS proxies failed. Please try again later.');
+        }
+      }
     }
   }
-
-  // Log detailed failure summary
-  console.error('❌ All proxy attempts failed:', proxyAttempts);
-  console.error('🔧 Debugging info:', {
-    userName: valorantName,
-    userTag: valorantTag,
-    apiKey: API_CONFIG.VALORANT_API_KEY ? 'Present' : 'Missing',
-    baseUrl: API_CONFIG.API_BASE_URL,
-    totalAttempts: proxyAttempts.length,
-    lastError
-  });
-
-  // If all proxies failed, throw error with the last error message
-  throw new Error(`Failed to validate Valorant profile after trying ${corsProxies.length} proxies. Last error: ${lastError}. Please check your Name and Tag ID.`);
 };
 
 // Update player profile with latest data
@@ -352,12 +314,20 @@ const getRankTier = (rank) => {
   return 0; // Unranked
 };
 
+// Placeholder function for fetchLifetimeMatches (if needed by App.js)
+const fetchLifetimeMatches = async (valorantName, valorantTag) => {
+  console.log('fetchLifetimeMatches called - this is a placeholder function');
+  return { matches: [], totalMatches: 0 };
+};
+
 export {
   validateValorantProfile,
   updatePlayerProfile,
   extractRankFromApiData,
   formatRankForDisplay,
   extractLifetimeStatsFromMmr,
+  extractProfileImageUrl,
   filterPlayersByRank,
-  getRankTier
+  getRankTier,
+  fetchLifetimeMatches
 };
