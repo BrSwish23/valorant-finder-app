@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatRankForDisplay } from '../utils/valorantApi';
 
 const PlayersListCard = ({ players, playersLoading, userId, chatRequestsSent, onRequestChat, userIdToUsername, OFFLINE_THRESHOLD }) => {
   const now = Date.now();
@@ -6,8 +7,24 @@ const PlayersListCard = ({ players, playersLoading, userId, chatRequestsSent, on
     const lastActive = player.lastActive && player.lastActive.seconds ? player.lastActive.seconds * 1000 : 0;
     const isOnline = lastActive && (now - lastActive < OFFLINE_THRESHOLD);
     const derivedStatus = isOnline ? player.status : 'Offline';
-    const displayUsername = player.username && player.username.length >= 3 ? player.username : `Player_${player.userId ? player.userId.slice(-6) : 'Unknown'}`;
-    return { ...player, derivedStatus, displayUsername };
+    
+    // Determine display name - prioritize Valorant profile if available
+    const hasValorantProfile = player.valorantName && player.valorantTag;
+    const displayName = hasValorantProfile 
+      ? `${player.valorantName}#${player.valorantTag}`
+      : (player.username && player.username.length >= 3 
+          ? player.username 
+          : `Player_${player.userId ? player.userId.slice(-6) : 'Unknown'}`);
+    
+    const displayRank = formatRankForDisplay(player.valorantRank);
+    
+    return { 
+      ...player, 
+      derivedStatus, 
+      displayName,
+      hasValorantProfile,
+      displayRank
+    };
   });
   const filteredPlayers = playersWithDerivedStatus.filter(p => p.derivedStatus !== 'Offline');
 
@@ -36,8 +53,19 @@ const PlayersListCard = ({ players, playersLoading, userId, chatRequestsSent, on
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="font-mono text-base text-green-400 font-bold">{player.displayUsername}</span>
-                {player.userId === userId && <span className="ml-2 text-xs text-blue-400">(You)</span>}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className={`font-mono text-base font-bold ${player.hasValorantProfile ? 'text-blue-400' : 'text-green-400'}`}>
+                      {player.displayName}
+                    </span>
+                    {player.userId === userId && <span className="text-xs text-blue-400">(You)</span>}
+                  </div>
+                  {player.hasValorantProfile && player.displayRank && (
+                    <span className="text-xs text-yellow-300 font-medium">
+                      {player.displayRank}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span

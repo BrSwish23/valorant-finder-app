@@ -3,10 +3,23 @@ import { auth, db } from './firebase';
 import { signInAnonymously, onAuthStateChanged, getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, addDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
 import LoginPage from './LoginPage';
-import MainHeader from './components/MainHeader';
-import StatusCard from './components/StatusCard';
-import PlayersListCard from './components/PlayersListCard';
+
+// Import new redesigned components
+import RedesignedHeader from './components/RedesignedHeader';
+import MainLandingBanner from './components/MainLandingBanner';
+import EnhancedProfileBanner from './components/EnhancedProfileBanner';
+import IconStatusBar from './components/IconStatusBar';
+import RankFilterSection from './components/RankFilterSection';
+import RedesignedPlayersGrid from './components/RedesignedPlayersGrid';
+
+// Import existing components that we still need
 import ChatsListCard from './components/ChatsListCard';
+import ChatWindow from './components/ChatWindow';
+import MessageRequests from './components/MessageRequests';
+import ValorantProfileSetupModal from './components/ValorantProfileSetupModal';
+
+// Import API utilities
+import { validateValorantProfile, updatePlayerProfile, formatRankForDisplay, fetchLifetimeMatches } from './utils/valorantApi';
 
 const STATUS_OPTIONS = [
   { label: 'Looking to Queue', value: 'Looking to Queue' },
@@ -17,12 +30,12 @@ const STATUS_OPTIONS = [
 const OFFLINE_THRESHOLD = 60 * 1000; // 60 seconds
 
 function App() {
-  // Simplified auth states
+  // Auth states
   const [authUser, setAuthUser] = useState(null);
-  const [authInitialized, setAuthInitialized] = useState(false); // Track if auth has been initialized
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [authLoading, setAuthLoading] = useState(false); // Only for auth actions, not state changes
-  const [authMode, setAuthMode] = useState('signin'); // 'signin' or 'signup'
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMode, setAuthMode] = useState('signin');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   
@@ -33,20 +46,30 @@ function App() {
     _setError(msg);
   };
   
+  // Player and status states
   const [status, setStatus] = useState('Offline');
   const [statusLoading, setStatusLoading] = useState(false);
   const [players, setPlayers] = useState([]);
   const [playersLoading, setPlayersLoading] = useState(true);
+  const [onlinePlayersCount, setOnlinePlayersCount] = useState(0);
+  
+  // Chat states
   const [chatRequestsSent, setChatRequestsSent] = useState({});
-  const [incomingRequests, setIncomingRequests] = useState([]);
-  const [showRequestsModal, setShowRequestsModal] = useState(false);
+  const [userChats, setUserChats] = useState([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
   const [activeChat, setActiveChat] = useState(null);
   const [chatMessage, setChatMessage] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
-  const [userChats, setUserChats] = useState([]);
-  const [chatsLoading, setChatsLoading] = useState(true);
+  
+  // Message request states
+  const [messageRequests, setMessageRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [userIdToUsername, setUserIdToUsername] = useState({});
+  
+  // User profile states
   const [username, setUsername] = useState('');
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [usernameInput, setUsernameInput] = useState('');
@@ -54,13 +77,20 @@ function App() {
   const [currentPlayerData, setCurrentPlayerData] = useState(null);
   const [usernameLoading, setUsernameLoading] = useState(false);
 
-  // Add state for login/signup form
-  const [loginEmail, setLoginEmail] = React.useState('');
-  const [loginPassword, setLoginPassword] = React.useState('');
-  const [loginLoading, setLoginLoading] = React.useState(false);
-  const [loginError, setLoginError] = React.useState('');
+  // Valorant profile states
+  const [showValorantProfileModal, setShowValorantProfileModal] = useState(false);
+  const [valorantProfileLoading, setValorantProfileLoading] = useState(false);
 
-  // Simplified auth state listener - only runs once
+  // New redesign states
+  const [rankFilter, setRankFilter] = useState('all');
+  const [totalMatches, setTotalMatches] = useState(1247); // Mock data for now
+  
+  // Handle rank filter changes
+  const handleRankFilterChange = (newFilter) => {
+    setRankFilter(newFilter);
+  };
+
+  // Auth state listener
   useEffect(() => {
     console.log('Setting up auth state listener');
     
@@ -69,7 +99,6 @@ function App() {
       setAuthUser(user);
       setAuthInitialized(true);
       
-      // Clear any auth errors when state changes
       if (user) {
         setAuthError('');
       }
@@ -83,663 +112,742 @@ function App() {
       console.log('Cleaning up auth state listener');
       unsubscribe();
     };
-  }, []); // Empty dependency array - this should only run once
+  }, []);
 
-  // Auth handlers
-  // Utility: Map Firebase Auth error codes to user-friendly messages
+  // Auth error message utility
   const getAuthErrorMessage = (code, context = 'signin') => {
-    // context: 'signin' | 'signup' | 'google'
     switch (code) {
-      // Sign Up
-      case 'auth/email-already-in-use':
-        return 'The email address is already in use. Please sign in or use a different email.';
-      case 'auth/weak-password':
-        return 'The password is too weak. Please choose a stronger password (min. 6 characters).';
-      case 'auth/invalid-email':
-        return 'The email address is not valid. Please check the format.';
-      // Sign In
       case 'auth/user-not-found':
-        return 'No account found with this email. Please sign up or check your email.';
+        return context === 'signin' ? 'No account found with this email.' : 'Account not found.';
       case 'auth/wrong-password':
-        return 'Incorrect password. Please try again or use the "Forgot Password" option.';
-      // Google
+        return 'Incorrect password.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/email-already-in-use':
+        return 'An account with this email already exists.';
+      case 'auth/weak-password':
+        return 'Password should be at least 6 characters.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Please try again later.';
       case 'auth/popup-closed-by-user':
-        return 'Google sign-in was canceled.';
-      // Common
-      case 'auth/network-request-failed':
-        return 'Network error. Please check your connection and try again.';
+        return 'Sign-in cancelled.';
+      case 'auth/cancelled-popup-request':
+        return 'Another sign-in popup is already open.';
       default:
-        if (context === 'signup') return 'Sign up failed. Please try again.';
-        if (context === 'google') return 'Google sign-in failed. Please try again.';
-        return 'Sign in failed. Please try again.';
+        return 'Authentication failed. Please try again.';
     }
   };
 
-  const handleEmailSignIn = async () => {
-    setAuthError('');
+  // Auth handlers
+  const handleEmailSignIn = async (email, password) => {
     setAuthLoading(true);
+    setAuthError('');
     try {
-      await signInWithEmailAndPassword(auth, authEmail, authPassword);
-      // Don't set showAuthModal here - let auth state change handle it
-    } catch (err) {
-      console.error('Email sign in error:', err);
-      setAuthError(getAuthErrorMessage(err.code, 'signin'));
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error.code, 'signin'));
     } finally {
       setAuthLoading(false);
     }
   };
 
-  const handleEmailSignUp = async () => {
-    setAuthError('');
+  const handleEmailSignUp = async (email, password) => {
     setAuthLoading(true);
+    setAuthError('');
     try {
-      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-      // Don't set showAuthModal here - let auth state change handle it
-    } catch (err) {
-      console.error('Email sign up error:', err);
-      setAuthError(getAuthErrorMessage(err.code, 'signup'));
+      await createUserWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error.code, 'signup'));
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    setAuthError('');
     setAuthLoading(true);
+    setAuthError('');
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      // Don't set showAuthModal here - let auth state change handle it
-    } catch (err) {
-      console.error('Google sign in error:', err);
-      setAuthError(getAuthErrorMessage(err.code, 'google'));
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setAuthError(getAuthErrorMessage(error.code, 'google'));
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (email) => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      return true;
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error.code, 'reset'));
+      return false;
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    setAuthError('');
     setAuthLoading(true);
     try {
-      // Set offline status before signing out
-      if (authUser) {
-        await setDoc(
-          doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid),
-          { status: 'Offline', lastActive: serverTimestamp() },
-          { merge: true }
-        );
-      }
       await signOut(auth);
-    } catch (err) {
-      console.error('Logout error:', err);
-      setAuthError(err.message);
+    } catch (error) {
+      setError('Failed to logout: ' + error.message);
     } finally {
       setAuthLoading(false);
     }
   };
 
-  // Use authenticated user's UID for all player data
-  const userId = authUser ? authUser.uid : null;
-
-  // Log every time the error state changes
+  // Player data listener
   useEffect(() => {
-    if (error) {
-      console.trace('Error state changed:', error);
-    }
-  }, [error]);
+    if (!authUser) return;
 
-  // Listen for players - only when authenticated
-  useEffect(() => {
-    if (!userId) {
-      setPlayers([]);
-      setPlayersLoading(false);
-      return;
-    }
-
-    console.log('Setting up players listener for user:', userId);
-    setPlayersLoading(true);
+    const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
     
-    const q = query(
-      collection(db, 'artifacts/valorant-finder/public/data/players'),
-      orderBy('lastUpdated', 'desc')
-    );
-    
-    const unsub = onSnapshot(q, (snapshot) => {
-      const list = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data());
-      });
-      setPlayers(list);
-      setPlayersLoading(false);
-      console.log('Fetched players:', list.length);
-    }, (err) => {
-      console.error('Players listener error:', err);
-      setError(err.message);
-      setPlayersLoading(false);
+    const unsubscribe = onSnapshot(playerRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        console.log('🔍 Current player data:', data);
+        setCurrentPlayerData(data);
+        setUsername(data.username || '');
+        
+        // Show Valorant profile modal if username exists but no Valorant profile
+        if (data.username && !data.valorantName && !data.valorantTag) {
+          console.log('📝 Showing Valorant profile modal - no valorantName/valorantTag found');
+          setShowValorantProfileModal(true);
+        } else if (data.valorantName && data.valorantTag) {
+          console.log('✅ Valorant profile found:', `${data.valorantName}#${data.valorantTag}`);
+          console.log('📊 Profile stats:', {
+            rank: data.valorantRank,
+            wins: data.lifetimeWins,
+            games: data.lifetimeGamesPlayed,
+            winRate: data.lifetimeGamesPlayed > 0 ? (data.lifetimeWins / data.lifetimeGamesPlayed * 100).toFixed(1) + '%' : '0%'
+          });
+        }
+      } else {
+        console.log('❌ No player document found - showing username modal');
+        setCurrentPlayerData(null);
+        setShowUsernameModal(true);
+      }
+    }, (error) => {
+      console.error('Error listening to player data:', error);
+      setError('Failed to load player data: ' + error.message);
     });
-    
-    return () => {
-      console.log('Cleaning up players listener');
-      unsub();
-    };
-  }, [userId]); // Only depend on userId
 
-  // Listen for incoming chat requests - only when authenticated
-  useEffect(() => {
-    if (!userId) {
-      setIncomingRequests([]);
+    return unsubscribe;
+  }, [authUser]);
+
+  // Enhanced API test function for debugging
+  const handleTestMmrApi = async () => {
+    try {
+      console.log('🧪 Testing MMR API call with known player...');
+      const testData = await validateValorantProfile('TenZ', '0001');
+      console.log('🎯 Test MMR API result:', testData);
+      console.log('📊 Extracted data:', {
+        rank: testData.valorantRank,
+        wins: testData.lifetimeWins,
+        games: testData.lifetimeGamesPlayed,
+        winRate: testData.lifetimeGamesPlayed > 0 ? Math.round((testData.lifetimeWins / testData.lifetimeGamesPlayed) * 100) : 0
+      });
+    } catch (error) {
+      console.error('❌ Test MMR API failed:', error.message);
+    }
+  };
+
+  // Test current user's profile update
+  const handleTestCurrentUserProfile = async () => {
+    if (!currentPlayerData?.valorantName || !currentPlayerData?.valorantTag) {
+      console.error('❌ No current user Valorant profile found');
       return;
     }
+    
+    try {
+      console.log(`🧪 Testing profile update for current user: ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}`);
+      const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
+      console.log('🎯 Current user profile update result:', updatedData);
+      
+      // Actually update the profile in Firestore for testing
+      const updatePayload = {
+        ...updatedData,
+        lastProfileUpdate: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      };
+      
+      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+      await updateDoc(playerRef, updatePayload);
+      console.log('✅ Test profile update saved to Firestore');
+      
+    } catch (error) {
+      console.error('❌ Current user profile test failed:', error.message);
+    }
+  };
 
-    console.log('Setting up chat requests listener for user:', userId);
-    
-    const q = query(
-      collection(db, 'artifacts/valorant-finder/public/data/chatRequests')
-    );
-    
-    const unsub = onSnapshot(q, (snapshot) => {
-      const requests = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.receiverId === userId && data.status === 'pending') {
-          requests.push({ id: doc.id, ...data });
+  // Direct API test without CORS proxy
+  const handleTestDirectApi = async () => {
+    try {
+      console.log('🧪 Testing DIRECT API call (will likely fail due to CORS)...');
+      const url = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/TenZ/0001`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'HDEV-f1588d35-627e-4c94-8bc9-8d967b3d2f88',
+          'Content-Type': 'application/json',
         }
       });
-      setIncomingRequests(requests);
-      setShowRequestsModal(requests.length > 0);
-      console.log('[ChatRequest] Incoming requests updated:', requests.length);
-    }, (err) => {
-      console.error('[ChatRequest] Incoming requests listener error:', err);
-      setError(err.message);
-    });
-    
-    return () => {
-      console.log('Cleaning up chat requests listener');
-      unsub();
-    };
-  }, [userId]);
+      
+      console.log('📥 Direct API Response status:', response.status);
+      const data = await response.json();
+      console.log('📊 Direct API Response data:', data);
+    } catch (error) {
+      console.error('❌ Direct API failed (expected due to CORS):', error.message);
+    }
+  };
 
-  // Listen for active chat messages
+  // Players list listener
+  useEffect(() => {
+    if (!authUser) return;
+
+    setPlayersLoading(true);
+    const playersRef = collection(db, 'artifacts/valorant-finder/public/data/players');
+    const playersQuery = query(playersRef, orderBy('lastUpdated', 'desc'));
+
+    const unsubscribe = onSnapshot(playersQuery, (snapshot) => {
+      const currentTime = Date.now();
+      const playersList = [];
+      const usernameMap = {};
+
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const lastUpdated = data.lastUpdated?.toDate?.()?.getTime() || 0;
+        const isOnline = currentTime - lastUpdated < OFFLINE_THRESHOLD;
+        
+        if (doc.id !== authUser.uid && data.username) {
+          playersList.push({
+            ...data,
+            userId: doc.id,
+            isOnline,
+            displayStatus: isOnline ? data.status : 'Offline'
+          });
+        }
+        
+        if (data.username) {
+          usernameMap[doc.id] = data.username;
+        }
+      });
+
+      setPlayers(playersList);
+      setOnlinePlayersCount(playersList.filter(p => p.isOnline).length);
+      setUserIdToUsername(usernameMap);
+      setPlayersLoading(false);
+    }, (error) => {
+      console.error('Error listening to players:', error);
+      setError('Failed to load players: ' + error.message);
+      setPlayersLoading(false);
+    });
+
+    return unsubscribe;
+  }, [authUser]);
+
+  // Heartbeat effect
+  useEffect(() => {
+    if (!authUser || !currentPlayerData) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+        await updateDoc(playerRef, {
+          lastUpdated: serverTimestamp(),
+          lastActive: serverTimestamp()
+        });
+      } catch (error) {
+        console.error('Heartbeat failed:', error);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [authUser, currentPlayerData]);
+
+  // Periodic profile update effect with retry mechanism
+  useEffect(() => {
+    if (!authUser || !currentPlayerData?.valorantName || !currentPlayerData?.valorantTag) return;
+
+    let retryCount = 0;
+    const maxRetries = 3;
+    const baseInterval = 15 * 60 * 1000; // 15 minutes
+    
+    const performUpdate = async (isRetry = false) => {
+      try {
+        console.log(`🔄 ${isRetry ? 'Retrying' : 'Performing'} periodic profile update for ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}...`);
+        const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
+        
+        // Add serverTimestamp for lastProfileUpdate
+        const updatePayload = {
+          ...updatedData,
+          lastProfileUpdate: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        };
+        
+        const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+        await updateDoc(playerRef, updatePayload);
+        
+        console.log('✅ Periodic profile update completed successfully');
+        console.log('📊 Updated data:', {
+          rank: updatedData.valorantRank,
+          wins: updatedData.lifetimeWins,
+          games: updatedData.lifetimeGamesPlayed,
+          winRate: updatedData.lifetimeWinRate
+        });
+        
+        // Reset retry count on success
+        retryCount = 0;
+        
+      } catch (error) {
+        console.error('❌ Periodic profile update failed:', error.message);
+        retryCount++;
+        
+        // Log additional details for debugging
+        if (error.message.includes('proxies')) {
+          console.error('🔧 API connectivity issue - all CORS proxies failed');
+        }
+        
+        // Retry with exponential backoff if under max retries
+        if (retryCount <= maxRetries) {
+          const retryDelay = Math.min(60000 * Math.pow(2, retryCount - 1), 300000); // Max 5 minutes
+          console.log(`🔄 Scheduling retry ${retryCount}/${maxRetries} in ${retryDelay / 1000} seconds...`);
+          setTimeout(() => performUpdate(true), retryDelay);
+        } else {
+          console.error(`❌ Max retries (${maxRetries}) exceeded for profile update`);
+          retryCount = 0; // Reset for next interval
+        }
+      }
+    };
+
+    // Initial update after 1 minute (to avoid immediate load)
+    const initialTimeout = setTimeout(() => performUpdate(), 60000);
+    
+    // Regular interval updates
+    const interval = setInterval(() => performUpdate(), baseInterval);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, [authUser, currentPlayerData]);
+
+  // Chat listeners and handlers
+  useEffect(() => {
+    if (!authUser) return;
+
+    setChatsLoading(true);
+    const chatsRef = collection(db, 'artifacts/valorant-finder/public/data/chats');
+    const chatsQuery = query(
+      chatsRef,
+      where('participants', 'array-contains', authUser.uid),
+      where('status', '==', 'active'),
+      orderBy('lastUpdated', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(chatsQuery, (snapshot) => {
+      const chatsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUserChats(chatsList);
+      setChatsLoading(false);
+    }, (error) => {
+      console.error('Error listening to chats:', error);
+      setError('Failed to load chats: ' + error.message);
+      setChatsLoading(false);
+    });
+
+    return unsubscribe;
+  }, [authUser]);
+
+  // Message requests listener
+  useEffect(() => {
+    if (!authUser) return;
+
+    setRequestsLoading(true);
+    const requestsRef = collection(db, 'artifacts/valorant-finder/public/data/chats');
+    const requestsQuery = query(
+      requestsRef,
+      where('participants', 'array-contains', authUser.uid),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+      const requestsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Separate incoming and outgoing requests
+      const incoming = requestsList.filter(req => req.requestedBy !== authUser.uid);
+      const outgoing = requestsList.filter(req => req.requestedBy === authUser.uid);
+      
+      setMessageRequests(incoming);
+      
+      // Update sent requests state
+      const sentRequestsMap = {};
+      outgoing.forEach(req => {
+        const otherUserId = req.participants.find(id => id !== authUser.uid);
+        sentRequestsMap[otherUserId] = req.id;
+      });
+      setChatRequestsSent(sentRequestsMap);
+      
+      setRequestsLoading(false);
+    }, (error) => {
+      console.error('Error listening to message requests:', error);
+      setError('Failed to load message requests: ' + error.message);
+      setRequestsLoading(false);
+    });
+
+    return unsubscribe;
+  }, [authUser]);
+
+  // Chat messages listener for active chat
   useEffect(() => {
     if (!activeChat) {
       setChatMessages([]);
       return;
     }
 
-    console.log('Setting up messages listener for chat:', activeChat.chatId);
-    
-    // Ensure parent chat document exists before subscribing to messages
-    const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', activeChat.chatId);
-    
-    getDoc(chatRef).then(chatSnap => {
-      if (!chatSnap.exists()) {
-        return setDoc(chatRef, {
-          chatId: activeChat.chatId,
-          participants: activeChat.participants,
-          createdAt: serverTimestamp(),
-          lastMessageAt: serverTimestamp(),
-        });
-      }
-    }).then(() => {
-      // Now subscribe to messages
-      const q = query(
-        collection(db, `artifacts/valorant-finder/public/data/chats/${activeChat.chatId}/messages`),
-        orderBy('timestamp', 'asc')
-      );
-      
-      const unsub = onSnapshot(q, (snapshot) => {
-        const msgs = [];
-        snapshot.forEach((doc) => {
-          msgs.push(doc.data());
-        });
-        setChatMessages(msgs);
-        console.log('Fetched messages for chat', activeChat.chatId, msgs.length);
-      }, (err) => {
-        console.error('Messages listener error:', err);
-        setError(err.message);
-      });
-      
-      return unsub;
-    }).catch(err => {
-      console.error('Chat setup error:', err);
-      setError(err.message);
+    const messagesRef = collection(db, 'artifacts/valorant-finder/public/data/chats', activeChat.id, 'messages');
+    const messagesQuery = query(messagesRef, orderBy('timestamp', 'asc'));
+
+    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+      const messagesList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setChatMessages(messagesList);
+    }, (error) => {
+      console.error('Error listening to messages:', error);
+      setError('Failed to load messages: ' + error.message);
     });
+
+    return unsubscribe;
   }, [activeChat]);
 
-  // Listen for all chats the user is a participant in
-  useEffect(() => {
-    if (!userId) {
-      setUserChats([]);
-      setChatsLoading(false);
-      return;
-    }
+  // Username setup handler
+  const handleSetUsername = async (newUsername) => {
+    if (!authUser) return;
 
-    console.log('Setting up chats listener for user:', userId);
-    setChatsLoading(true);
-    
-    const q = query(
-      collection(db, 'artifacts/valorant-finder/public/data/chats'),
-      where('participants', 'array-contains', userId),
-      orderBy('lastMessageAt', 'desc')
-    );
-    
-    const unsub = onSnapshot(q, (snapshot) => {
-      const chats = [];
-      snapshot.forEach((doc) => {
-        chats.push({ id: doc.id, ...doc.data() });
-      });
-      setUserChats(chats);
-      setChatsLoading(false);
-      console.log('Fetched chats:', chats.length);
-    }, (err) => {
-      console.error('Chats listener error:', err);
-      setError(err.message);
-      setChatsLoading(false);
-    });
-  
-    return () => {
-      console.log('Cleaning up chats listener');
-      unsub();
-    };
-  }, [userId]);
-
-  // Fetch all player usernames for mapping userId to username
-  useEffect(() => {
-    console.log('Setting up usernames listener');
-    
-    const q = collection(db, 'artifacts/valorant-finder/public/data/players');
-    const unsub = onSnapshot(q, (snapshot) => {
-      const map = {};
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.userId && data.username) {
-          map[data.userId] = data.username;
-        }
-      });
-      setUserIdToUsername(map);
-      console.log('Fetched userIdToUsername map:', Object.keys(map).length, 'entries');
-    }, (err) => {
-      console.error('Usernames listener error:', err);
-    });
-    
-    return () => {
-      console.log('Cleaning up usernames listener');
-      unsub();
-    };
-  }, []);
-
-  // Fetch current user's player document - only when authenticated
-  useEffect(() => {
-    if (!userId) {
-      setCurrentPlayerData(null);
-      setUsernameLoading(false);
-      setShowUsernameModal(false);
-      return;
-    }
-
-    console.log('Setting up current player listener for user:', userId);
     setUsernameLoading(true);
-    
-    const userDocRef = doc(db, 'artifacts/valorant-finder/public/data/players', userId);
-    const unsub = onSnapshot(userDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setCurrentPlayerData(data);
-        setShowUsernameModal(!data.username || data.username.length < 3);
-        console.log('Current player data updated:', data.username || 'no username');
-      } else {
-        setCurrentPlayerData(null);
-        setShowUsernameModal(true);
-        console.log('No current player data found');
-      }
-      setUsernameLoading(false);
-    }, (err) => {
-      console.error('Current player listener error:', err);
-      setUsernameLoading(false);
-    });
-    
-    return () => {
-      console.log('Cleaning up current player listener');
-      unsub();
-    };
-  }, [userId]);
+    setUsernameError('');
 
-  // Username validation
-  const validateUsername = (name) => {
-    if (!name || name.length < 3) return 'Username must be at least 3 characters.';
-    if (name.length > 20) return 'Username must be at most 20 characters.';
-    if (!/^[a-zA-Z0-9_]+$/.test(name)) return 'Username can only contain letters, numbers, and underscores.';
-    return '';
-  };
-
-  // Save username to Firestore and update currentPlayerData
-  const handleSaveUsername = async () => {
-    const errorMsg = validateUsername(usernameInput);
-    if (errorMsg) {
-      setUsernameError(errorMsg);
-      return;
-    }
-    
-    if (!userId) {
-      setUsernameError('Not authenticated');
-      return;
-    }
-    
     try {
-      const userDocRef = doc(db, 'artifacts/valorant-finder/public/data/players', userId);
-      await setDoc(userDocRef, { 
-        userId,
-        username: usernameInput,
+      const trimmedUsername = newUsername.trim();
+      if (!trimmedUsername) {
+        setUsernameError('Username cannot be empty');
+        return;
+      }
+
+      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+      await setDoc(playerRef, {
+        userId: authUser.uid,
+        username: trimmedUsername,
+        status: 'Offline',
         lastUpdated: serverTimestamp(),
         lastActive: serverTimestamp()
-      }, { merge: true });
-      setUsernameError('');
+      });
+
       setShowUsernameModal(false);
       setUsernameInput('');
-      console.log('Username saved:', usernameInput);
-    } catch (err) {
-      console.error('Save username error:', err);
-      setUsernameError('Failed to save username. Try again.');
+    } catch (error) {
+      console.error('Error setting username:', error);
+      setUsernameError('Failed to set username: ' + error.message);
+    } finally {
+      setUsernameLoading(false);
     }
   };
 
-  // Heartbeat: update lastActive every 20 seconds - only when authenticated
-  useEffect(() => {
-    if (!userId) return;
+  // Valorant profile setup handler
+  const handleSaveValorantProfile = async (valorantName, valorantTag) => {
+    if (!authUser) return;
 
-    console.log('Setting up heartbeat for user:', userId);
-    
-    const heartbeat = async () => {
-      try {
-        await setDoc(
-          doc(db, 'artifacts/valorant-finder/public/data/players', userId),
-          { lastActive: serverTimestamp() },
-          { merge: true }
-        );
-      } catch (err) {
-        console.error('Heartbeat error:', err);
-      }
-    };
-    
-    const interval = setInterval(heartbeat, 20000); // 20 seconds
-    heartbeat(); // initial heartbeat
-    
-    return () => {
-      console.log('Cleaning up heartbeat');
-      clearInterval(interval);
-    };
-  }, [userId]);
-
-  // onbeforeunload: best effort to set status to Offline
-  useEffect(() => {
-    if (!userId) return;
-
-    const handleUnload = async () => {
-      try {
-        await setDoc(
-          doc(db, 'artifacts/valorant-finder/public/data/players', userId),
-          { status: 'Offline', lastActive: serverTimestamp() },
-          { merge: true }
-        );
-      } catch (err) {
-        console.error('Unload error:', err);
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
-  }, [userId]);
-
-  // Update handleSetStatus to use currentPlayerData
-  const handleSetStatus = async (newStatus) => {
-    if (!userId) return;
-    
-    setStatusLoading(true);
-    setStatus(newStatus);
-    
+    setValorantProfileLoading(true);
     try {
-      await setDoc(
-        doc(db, 'artifacts/valorant-finder/public/data/players', userId),
-        {
-          userId,
-          username: (currentPlayerData && currentPlayerData.username) ? currentPlayerData.username : `Player_${userId.slice(-6)}`,
-          status: newStatus,
-          lastUpdated: serverTimestamp(),
-          lastActive: serverTimestamp(),
-        },
-        { merge: true }
-      );
-      console.log('Set status for user', userId, newStatus);
-    } catch (err) {
-      console.error('Set status error:', err);
-      setError(err.message);
+      console.log('🔍 Step 1: Validating Valorant profile...');
+      const validatedData = await validateValorantProfile(valorantName, valorantTag);
+      console.log('✅ Step 1 Complete: Profile validation successful');
+      console.log('📊 Validated data:', validatedData);
+
+      console.log('💾 Step 2: Saving to Firestore...');
+      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+      
+      // Calculate lifetime win rate
+      let lifetimeWinRate = 0;
+      const wins = validatedData.lifetimeWins || 0;
+      const games = validatedData.lifetimeGamesPlayed || 0;
+      if (games > 0) {
+        lifetimeWinRate = Math.round((wins / games) * 100);
+      }
+
+      const updateData = {
+        valorantName: valorantName,
+        valorantTag: valorantTag,
+        valorantRank: validatedData.valorantRank,
+        profilePhotoUrl: validatedData.profilePhotoUrl,
+        lifetimeWins: wins,
+        lifetimeGamesPlayed: games,
+        lifetimeWinRate: lifetimeWinRate,
+        lastProfileUpdate: serverTimestamp()
+      };
+
+      console.log('📝 Data to save:', updateData);
+      
+      await updateDoc(playerRef, updateData);
+      console.log('✅ Step 2 Complete: Firestore save successful');
+
+      setShowValorantProfileModal(false);
+      console.log('🎉 Valorant profile setup completed successfully!');
+    } catch (error) {
+      console.error('❌ Valorant profile setup failed:', error);
+      
+      // Distinguish between validation errors and Firebase errors
+      if (error.message.includes('Failed to validate Valorant profile')) {
+        console.error('🔴 API Validation Error:', error.message);
+        throw new Error('API Validation Failed: ' + error.message);
+      } else if (error.message.includes('Missing or insufficient permissions')) {
+        console.error('🔴 Firebase Permissions Error:', error.message);
+        throw new Error('Database Permission Error: Please check Firestore security rules. Contact support if this persists.');
+      } else {
+        console.error('🔴 Unknown Error:', error.message);
+        throw error;
+      }
+    } finally {
+      setValorantProfileLoading(false);
+    }
+  };
+
+  // Status change handler
+  const handleSetStatus = async (newStatus) => {
+    if (!authUser || !currentPlayerData) return;
+
+    setStatusLoading(true);
+    try {
+      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+      await updateDoc(playerRef, {
+        status: newStatus,
+        lastUpdated: serverTimestamp(),
+        lastActive: serverTimestamp(),
+        // Preserve existing Valorant profile data
+        ...(currentPlayerData.valorantName && {
+          valorantName: currentPlayerData.valorantName,
+          valorantTag: currentPlayerData.valorantTag,
+          valorantRank: currentPlayerData.valorantRank,
+          profilePhotoUrl: currentPlayerData.profilePhotoUrl,
+          lifetimeWins: currentPlayerData.lifetimeWins || 0,
+          lifetimeGamesPlayed: currentPlayerData.lifetimeGamesPlayed || 0,
+          lastProfileUpdate: currentPlayerData.lastProfileUpdate
+        })
+      });
+      setStatus(newStatus);
+    } catch (error) {
+      console.error('Error setting status:', error);
+      setError('Failed to set status: ' + error.message);
     } finally {
       setStatusLoading(false);
     }
   };
 
-  // Update handleRequestChat to use currentPlayerData
-  const handleRequestChat = async (player) => {
-    if (!userId) return;
-    
-    setChatRequestsSent((prev) => ({ ...prev, [player.userId]: true }));
-    console.log('[ChatRequest] Attempting to send chat request to:', player.userId);
-    
-    try {
-      await addDoc(collection(db, 'artifacts/valorant-finder/public/data/chatRequests'), {
-        senderId: userId,
-        senderUsername: (currentPlayerData && currentPlayerData.username) ? currentPlayerData.username : `Player_${userId.slice(-6)}`,
-        receiverId: player.userId,
-        receiverUsername: player.username || `Player_${player.userId.slice(-6)}`,
-        status: 'pending',
-        timestamp: serverTimestamp(),
-      });
-      console.log('[ChatRequest] Sent chat request to', player.userId);
-    } catch (err) {
-      console.error('[ChatRequest] Request chat error:', err);
-      setError(err.message);
-      setChatRequestsSent((prev) => ({ ...prev, [player.userId]: false }));
+  // Chat handlers
+  const handleChatClick = async (player) => {
+    if (player.clearFilter) {
+      handleRankFilterChange('all');
+      return;
     }
-  };
 
-  const handleAcceptRequest = async (req) => {
-    console.log('[ChatRequest] Accepting chat request:', req.id);
     try {
-      await updateDoc(doc(db, 'artifacts/valorant-finder/public/data/chatRequests', req.id), {
-        status: 'accepted',
-      });
-      
-      // Create a new chat document (chatId: sorted userIds joined by '_')
-      const chatId = [req.senderId, req.receiverId].sort().join('_');
-      await setDoc(doc(db, 'artifacts/valorant-finder/public/data/chats', chatId), {
-        chatId,
-        participants: [req.senderId, req.receiverId],
-        createdAt: serverTimestamp(),
-        lastMessageAt: serverTimestamp(),
-      }, { merge: true });
-      
-      setIncomingRequests((prev) => prev.filter((r) => r.id !== req.id));
-      setShowRequestsModal(false);
-      setActiveChat({ chatId, participants: [req.senderId, req.receiverId] });
-      console.log('[ChatRequest] Accepted chat request and created chat', chatId);
-    } catch (err) {
-      console.error('[ChatRequest] Accept request error:', err);
-      setError(err.message);
-    }
-  };
+      // Check if active chat already exists
+      const existingChat = userChats.find(chat => 
+        chat.participants.includes(player.userId) && chat.status === 'active'
+      );
 
-  const handleDeclineRequest = async (req) => {
-    console.log('[ChatRequest] Declining chat request:', req.id);
-    try {
-      await updateDoc(doc(db, 'artifacts/valorant-finder/public/data/chatRequests', req.id), {
-        status: 'declined',
-      });
-      setIncomingRequests((prev) => prev.filter((r) => r.id !== req.id));
-      setShowRequestsModal(false);
-      console.log('[ChatRequest] Declined chat request', req.id);
-    } catch (err) {
-      console.error('[ChatRequest] Decline request error:', err);
-      setError(err.message);
-    }
-  };
-
-  const dismissError = () => {
-    setError(null);
-  };
-
-  // Update handleSendMessage to use currentPlayerData
-  const handleSendMessage = async () => {
-    if (!activeChat || !chatMessage.trim() || !userId) return;
-    
-    setChatLoading(true);
-    
-    try {
-      // Ensure parent chat document exists before sending a message
-      const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', activeChat.chatId);
-      const chatSnap = await getDoc(chatRef);
-      
-      if (!chatSnap.exists()) {
-        await setDoc(chatRef, {
-          chatId: activeChat.chatId,
-          participants: activeChat.participants,
-          createdAt: serverTimestamp(),
-          lastMessageAt: serverTimestamp(),
-        });
-        console.log('Created parent chat document for', activeChat.chatId);
+      if (existingChat) {
+        setActiveChat(existingChat);
+        return;
       }
+
+      // Check if there's already a pending request (sent or received)
+      const allRequestsRef = collection(db, 'artifacts/valorant-finder/public/data/chats');
+      const existingRequestQuery = query(
+        allRequestsRef,
+        where('participants', 'array-contains', authUser.uid)
+      );
       
-      await addDoc(collection(db, `artifacts/valorant-finder/public/data/chats/${activeChat.chatId}/messages`), {
-        senderId: userId,
-        senderUsername: (currentPlayerData && currentPlayerData.username) ? currentPlayerData.username : `Player_${userId.slice(-6)}`,
-        text: chatMessage.trim(),
-        timestamp: serverTimestamp(),
+      const requestSnapshot = await getDocs(existingRequestQuery);
+      const existingRequest = requestSnapshot.docs.find(doc => {
+        const data = doc.data();
+        return data.participants.includes(player.userId) && 
+               (data.status === 'pending' || data.status === 'active');
       });
+
+      if (existingRequest) {
+        const requestData = existingRequest.data();
+        if (requestData.status === 'pending') {
+          setError('Message request already sent or received for this user');
+          return;
+        }
+      }
+
+      // Create new message request
+      const chatRef = await addDoc(collection(db, 'artifacts/valorant-finder/public/data/chats'), {
+        participants: [authUser.uid, player.userId],
+        requestedBy: authUser.uid,
+        requestedTo: player.userId,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        lastUpdated: serverTimestamp(),
+        lastMessage: '',
+        lastMessageBy: ''
+      });
+
+      // Update sent requests state
+      setChatRequestsSent(prev => ({
+        ...prev,
+        [player.userId]: chatRef.id
+      }));
+
+      setError('Message request sent! Wait for them to accept.');
+
+    } catch (error) {
+      console.error('Error handling chat:', error);
+      setError('Failed to send message request: ' + error.message);
+    }
+  };
+
+  // Accept message request
+  const handleAcceptRequest = async (request) => {
+    try {
+      const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', request.id);
+      await updateDoc(chatRef, {
+        status: 'active',
+        lastUpdated: serverTimestamp()
+      });
+
+      // Remove from pending requests and add to active chats
+      setMessageRequests(prev => prev.filter(req => req.id !== request.id));
       
+      setError('Message request accepted!');
+    } catch (error) {
+      console.error('Error accepting request:', error);
+      setError('Failed to accept request: ' + error.message);
+    }
+  };
+
+  // Decline message request
+  const handleDeclineRequest = async (request) => {
+    try {
+      const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', request.id);
+      await updateDoc(chatRef, {
+        status: 'declined',
+        lastUpdated: serverTimestamp()
+      });
+
+      // Remove from pending requests
+      setMessageRequests(prev => prev.filter(req => req.id !== request.id));
+      
+      setError('Message request declined.');
+    } catch (error) {
+      console.error('Error declining request:', error);
+      setError('Failed to decline request: ' + error.message);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatMessage.trim() || !activeChat) return;
+
+    setChatLoading(true);
+    try {
+      const messagesRef = collection(db, 'artifacts/valorant-finder/public/data/chats', activeChat.id, 'messages');
+      await addDoc(messagesRef, {
+        text: chatMessage.trim(),
+        senderId: authUser.uid,
+        senderUsername: currentPlayerData?.valorantName && currentPlayerData?.valorantTag 
+          ? `${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}`
+          : currentPlayerData?.username || 'Unknown User',
+        timestamp: serverTimestamp()
+      });
+
+      const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', activeChat.id);
+      await updateDoc(chatRef, {
+        lastMessage: chatMessage.trim(),
+        lastMessageBy: authUser.uid,
+        lastUpdated: serverTimestamp()
+      });
+
       setChatMessage('');
-      console.log('Sent message in chat', activeChat.chatId);
-    } catch (err) {
-      console.error('Send message error:', err);
-      setError(err.message);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setError('Failed to send message: ' + error.message);
     } finally {
       setChatLoading(false);
     }
   };
 
-  // Show loading while auth is initializing
+  // Show login page if not authenticated
   if (!authInitialized) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
-        <div className="flex items-center">
-          <svg className="animate-spin h-8 w-8 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-          </svg>
-          <span>Initializing...</span>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
 
-  // Example: Replace this with your actual auth state logic
-  const isAuthenticated = !!authUser; // or however you track auth
-
-  // Handlers for login/signup/forgot password
-  const handleLogin = async () => {
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, authEmail, authPassword);
-    } catch (err) {
-      setAuthError(getAuthErrorMessage(err.code, 'signin'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-  const handleSignUp = async () => {
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-    } catch (err) {
-      setAuthError(getAuthErrorMessage(err.code, 'signup'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-  const handleGoogleLogin = async () => {
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      setAuthError(getAuthErrorMessage(err.code, 'google'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-  const handleForgotPasswordSubmit = async (email) => {
-    if (!email) throw new Error('Please enter your email.');
-    try {
-      await sendPasswordResetEmail(auth, email);
-    } catch (err) {
-      throw new Error(getAuthErrorMessage(err.code, 'signin'));
-    }
-  };
-  const handleSwitchMode = (mode) => {
-    setAuthMode(mode);
-    setAuthError('');
-    setAuthEmail('');
-    setAuthPassword('');
-  };
-
-  if (!isAuthenticated) {
+  if (!authUser) {
     return (
       <LoginPage
         mode={authMode}
         email={authEmail}
         password={authPassword}
-        onEmailChange={e => { setAuthEmail(e.target.value); setAuthError(''); }}
-        onPasswordChange={e => { setAuthPassword(e.target.value); setAuthError(''); }}
-        onLogin={handleLogin}
-        onSignUp={handleSignUp}
-        onGoogleLogin={handleGoogleLogin}
-        onForgotPasswordSubmit={handleForgotPasswordSubmit}
-        onSwitchMode={handleSwitchMode}
+        onEmailChange={(e) => setAuthEmail(e.target.value)}
+        onPasswordChange={(e) => setAuthPassword(e.target.value)}
+        onLogin={() => handleEmailSignIn(authEmail, authPassword)}
+        onSignUp={() => handleEmailSignUp(authEmail, authPassword)}
+        onGoogleLogin={handleGoogleSignIn}
+        onForgotPasswordSubmit={handlePasswordReset}
+        onSwitchMode={setAuthMode}
         loading={authLoading}
         error={authError}
       />
     );
   }
 
-  // Show username modal if username is required and loading is complete
-  if (showUsernameModal && !usernameLoading) {
+  // Show username modal if needed
+  if (showUsernameModal) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-70">
-        <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-700 flex flex-col">
-          <h3 className="text-lg font-bold text-blue-400 mb-4">Choose a Username</h3>
-          <input
-            className="rounded-lg p-2 bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
-            type="text"
-            placeholder="Enter username"
-            value={usernameInput}
-            onChange={e => setUsernameInput(e.target.value)}
-            maxLength={20}
-          />
-          {usernameError && <div className="text-red-400 text-xs mb-2">{usernameError}</div>}
-          <div className="flex gap-2 mt-2">
-            <button 
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold" 
-              onClick={handleSaveUsername}
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 flex items-center justify-center p-4">
+        <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
+          <h3 className="text-xl font-bold text-blue-400 mb-4 text-center">
+            Welcome! Set Your Username
+          </h3>
+          <div className="space-y-4">
+            <input
+              type="text"
+              value={usernameInput}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              placeholder="Enter your username"
+              className="w-full p-3 rounded-lg bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onKeyPress={(e) => e.key === 'Enter' && handleSetUsername(usernameInput)}
+            />
+            {usernameError && (
+              <div className="text-red-400 text-sm">{usernameError}</div>
+            )}
+            <button
+              onClick={() => handleSetUsername(usernameInput)}
+              disabled={usernameLoading || !usernameInput.trim()}
+              className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 text-white font-bold rounded-lg transition"
             >
-              Save Username
-            </button>
-            <button 
-              className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white font-bold" 
-              onClick={() => setShowUsernameModal(false)}
-            >
-              Cancel
+              {usernameLoading ? 'Setting Username...' : 'Continue'}
             </button>
           </div>
         </div>
@@ -747,137 +855,189 @@ function App() {
     );
   }
 
-  // Show loading if username is still loading
-  if (usernameLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
-        <div className="flex items-center">
-          <svg className="animate-spin h-8 w-8 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-          </svg>
-          <span>Loading profile...</span>
-        </div>
-      </div>
-    );
-  }
-
+  // Main redesigned app
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-start bg-cover bg-center relative" style={{ backgroundImage: `url('/bg_image.png')` }}>
-      <div className="absolute inset-0 bg-black bg-opacity-60 z-0" />
-      <div className="relative z-10 flex flex-col items-center w-full px-2">
-        {error && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center border-2 border-red-400">
-            <span>{error}</span>
-            <button className="ml-4 text-white font-bold text-xl" onClick={dismissError}>&times;</button>
-          </div>
-        )}
-        <MainHeader
-          username={currentPlayerData && currentPlayerData.username ? currentPlayerData.username : `Player_${userId ? userId.slice(-6) : 'Unknown'}`}
-          onLogout={handleLogout}
-          loading={authLoading}
-        />
-        <div className="w-full max-w-6xl mx-auto flex flex-col md:flex-row gap-8 md:gap-6 mt-2">
-          {/* Left Column: Status + Chats */}
-          <div className="flex flex-col gap-6 w-full md:w-1/3 min-w-[280px] max-w-md">
-            <StatusCard
-              status={status}
-              statusLoading={statusLoading}
-              onSetStatus={handleSetStatus}
-              STATUS_OPTIONS={STATUS_OPTIONS}
-            />
-            <ChatsListCard
-              userChats={userChats}
-              chatsLoading={chatsLoading}
-              userId={userId}
-              userIdToUsername={userIdToUsername}
-              onOpenChat={setActiveChat}
-            />
-          </div>
-          {/* Right Column: Players Online */}
-          <div className="w-full md:w-2/3 flex flex-col">
-            <div className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto">
-              <PlayersListCard
-                players={players}
-                playersLoading={playersLoading}
-                userId={userId}
-                chatRequestsSent={chatRequestsSent}
-                onRequestChat={handleRequestChat}
-                userIdToUsername={userIdToUsername}
-                OFFLINE_THRESHOLD={OFFLINE_THRESHOLD}
-              />
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
+      {/* Redesigned Header */}
+      <RedesignedHeader
+        username={username}
+        valorantName={currentPlayerData?.valorantName}
+        valorantTag={currentPlayerData?.valorantTag}
+        valorantRank={currentPlayerData?.valorantRank}
+        profilePhotoUrl={currentPlayerData?.profilePhotoUrl}
+        onLogout={handleLogout}
+        loading={authLoading}
+        messageRequestsCount={messageRequests.length}
+        onShowRequests={() => setShowRequestsModal(true)}
+      />
+
+      {/* Main Landing Banner */}
+      <MainLandingBanner
+        onlinePlayersCount={onlinePlayersCount}
+        totalMatches={totalMatches}
+      />
+
+      {/* Enhanced Profile Banner */}
+      <EnhancedProfileBanner
+        username={username}
+        valorantName={currentPlayerData?.valorantName}
+        valorantTag={currentPlayerData?.valorantTag}
+        valorantRank={currentPlayerData?.valorantRank}
+        profilePhotoUrl={currentPlayerData?.profilePhotoUrl}
+        lifetimeWins={currentPlayerData?.lifetimeWins || 0}
+        lifetimeGamesPlayed={currentPlayerData?.lifetimeGamesPlayed || 0}
+        onlinePlayersCount={onlinePlayersCount}
+        currentStatus={currentPlayerData?.status || status}
+      />
+
+      {/* Debug Section - Only visible in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="w-full max-w-4xl mx-auto px-4 mb-4">
+          <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-4">
+            <h4 className="text-yellow-300 font-semibold mb-2">🔧 Debug Tools (Development Only)</h4>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleTestMmrApi}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm"
+              >
+                Test MMR API
+              </button>
+              <button
+                onClick={handleTestDirectApi}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm"
+              >
+                Test Direct API (CORS)
+              </button>
+              <button
+                onClick={() => setShowValorantProfileModal(true)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+              >
+                Show Profile Modal
+              </button>
+              {currentPlayerData?.valorantName && currentPlayerData?.valorantTag && (
+                <button
+                  onClick={async () => {
+                    try {
+                      console.log('🔄 Refreshing profile data...');
+                      const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
+                      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+                      await updateDoc(playerRef, updatedData);
+                      console.log('✅ Profile refreshed');
+                    } catch (error) {
+                      console.error('❌ Profile refresh failed:', error);
+                    }
+                  }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
+                >
+                  Refresh Profile Data
+                </button>
+              )}
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm"
+              >
+                🔄 Reload Page
+              </button>
+              <button
+                onClick={handleTestMmrApi}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+              >
+                🧪 Test MMR API
+              </button>
+              <button
+                onClick={handleTestCurrentUserProfile}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm"
+              >
+                🎯 Test Current Profile
+              </button>
             </div>
-          </div>
-        </div>
-        {/* Modals and overlays remain as before */}
-        {/* ... Username Modal, Chat Modal, Requests Modal ... */}
-      </div>
-      {/* Requests Modal */}
-      {showRequestsModal && incomingRequests.length > 0 && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-60">
-          <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-700">
-            <h3 className="text-lg font-bold mb-4 text-red-400">Incoming Chat Request</h3>
-            {incomingRequests.map((req) => (
-              <div key={req.id} className="mb-4 p-3 rounded-lg bg-gray-700 flex flex-col gap-2">
-                <span className="text-white font-semibold">From: <span className="text-green-400">{req.senderUsername}</span></span>
-                <div className="flex gap-2 mt-2">
-                  <button 
-                    className="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-500 font-bold" 
-                    onClick={() => handleAcceptRequest(req)}
-                  >
-                    Accept
-                  </button>
-                  <button 
-                    className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-500 font-bold" 
-                    onClick={() => handleDeclineRequest(req)}
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            ))}
+            <div className="mt-2 text-xs text-yellow-200">
+              Check browser console for detailed logs. If you see Firebase permission errors, contact support.
+            </div>
           </div>
         </div>
       )}
+
+      {/* Icon Status Bar */}
+      <IconStatusBar
+        currentStatus={currentPlayerData?.status || status}
+        onStatusChange={handleSetStatus}
+        loading={statusLoading}
+      />
+
+      {/* Rank Filter Section */}
+      <RankFilterSection
+        onFilterChange={handleRankFilterChange}
+        selectedFilter={rankFilter}
+      />
+
+      {/* Redesigned Players Grid */}
+      <RedesignedPlayersGrid
+        players={players}
+        currentUserId={authUser?.uid}
+        onChatClick={handleChatClick}
+        existingChats={userChats.reduce((acc, chat) => {
+          const otherUserId = chat.participants.find(id => id !== authUser.uid);
+          if (otherUserId) acc[otherUserId] = chat.id;
+          return acc;
+        }, {})}
+        chatRequestsSent={chatRequestsSent}
+        rankFilter={rankFilter}
+        loading={playersLoading}
+      />
+
       {/* Chat Modal */}
       {activeChat && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-70">
-          <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700 flex flex-col h-[70vh]">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-blue-400">Chat</h3>
-              <button className="text-white text-2xl font-bold" onClick={() => setActiveChat(null)}>&times;</button>
-            </div>
-            <div className="flex-1 overflow-y-auto bg-gray-800 rounded-lg p-3 mb-4">
-              {chatMessages.length === 0 ? (
-                <div className="text-gray-400 text-center">No messages yet.</div>
-              ) : (
-                <ul>
-                  {chatMessages.map((msg, idx) => (
-                    <li key={idx} className="mb-2">
-                      <span className="font-mono text-green-400">{msg.senderUsername}:</span> <span className="text-white">{msg.text}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-lg p-2 bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                type="text"
-                placeholder="Type a message..."
-                value={chatMessage}
-                onChange={e => setChatMessage(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSendMessage(); }}
-                disabled={chatLoading}
-              />
-              <button
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-60"
-                onClick={handleSendMessage}
-                disabled={chatLoading || !chatMessage.trim()}
-              >
-                Send
-              </button>
-            </div>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl h-96 border border-gray-700">
+            <ChatWindow
+              activeChat={activeChat}
+              chatMessages={chatMessages}
+              chatMessage={chatMessage}
+              setChatMessage={setChatMessage}
+              onSendMessage={handleSendMessage}
+              chatLoading={chatLoading}
+              userIdToUsername={userIdToUsername}
+              currentPlayerData={currentPlayerData}
+              currentUserId={authUser?.uid}
+              onClose={() => setActiveChat(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Message Requests Modal */}
+      {showRequestsModal && (
+        <MessageRequests
+          messageRequests={messageRequests}
+          requestsLoading={requestsLoading}
+          userIdToUsername={userIdToUsername}
+          onAcceptRequest={handleAcceptRequest}
+          onDeclineRequest={handleDeclineRequest}
+          onClose={() => setShowRequestsModal(false)}
+        />
+      )}
+
+      {/* Valorant Profile Setup Modal */}
+      {showValorantProfileModal && (
+        <ValorantProfileSetupModal
+          onSave={handleSaveValorantProfile}
+          onCancel={() => setShowValorantProfileModal(false)}
+          loading={valorantProfileLoading}
+        />
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-lg z-50">
+          <div className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="ml-4 text-white hover:text-gray-200"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
