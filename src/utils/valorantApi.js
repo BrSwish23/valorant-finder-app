@@ -102,6 +102,7 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
   console.log(`🚀 Starting profile validation for ${valorantName}#${valorantTag}`);
   
   const baseUrl = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/${encodeURIComponent(valorantName)}/${encodeURIComponent(valorantTag)}`;
+  let lastError = null;
   
   // Try each CORS proxy
   for (let i = 0; i < CORS_PROXIES.length; i++) {
@@ -119,31 +120,38 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
     
     try {
       console.log(`📡 Attempting proxy ${i + 1}/${CORS_PROXIES.length}: ${proxy}`);
-      
+       
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          ...(proxy.includes('allorigins') ? {} : { 'Authorization': API_CONFIG.VALORANT_API_KEY })
         }
       });
 
       if (response.ok) {
-        let data = await response.json();
+        let responseData = await response.json();
         
         // Some proxies wrap the response, extract the actual data
-        if (data.contents) {
-          data = JSON.parse(data.contents);
-        } else if (data.data) {
-          data = data.data;
+        if (responseData.contents) {
+          responseData = JSON.parse(responseData.contents);
         }
         
-        console.log(`✅ Success with proxy ${i + 1}:`, data);
+        // Check if we have valid API response structure
+        if (!responseData || !responseData.data) {
+          console.warn(`⚠️ Invalid response structure from proxy ${i + 1}`);
+          continue;
+        }
+        
+        console.log(`✅ Success with proxy ${i + 1}:`, responseData);
         
         // Extract the data you need
-        const lifetimeStats = extractLifetimeStatsFromMmr(data);
+        const apiData = responseData.data;
+        const lifetimeStats = extractLifetimeStatsFromMmr(apiData);
         const profileData = {
-          valorantRank: extractRankFromApiData(data),
-          profilePhotoUrl: extractProfileImageUrl(data),
+          isValid: true,
+          valorantRank: extractRankFromApiData(apiData),
+          profilePhotoUrl: extractProfileImageUrl(apiData),
           lifetimeWins: lifetimeStats.lifetimeWins,
           lifetimeGamesPlayed: lifetimeStats.lifetimeGamesPlayed
         };
@@ -156,22 +164,28 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
         });
         
         return profileData;
+      } else {
+        console.warn(`❌ HTTP ${response.status} from proxy ${i + 1}`);
+        lastError = `HTTP ${response.status}: ${response.statusText}`;
       }
     } catch (error) {
       console.warn(`❌ Proxy ${i + 1} failed:`, error.message);
-      if (i === CORS_PROXIES.length - 1) {
-        // Provide user-friendly error messages
-        if (error.message.includes('404')) {
-          throw new Error('Player not found. Please check your Valorant Name and Tag ID.');
-        } else if (error.message.includes('500')) {
-          throw new Error('Validation service is temporarily unavailable. Please try again later.');
-        } else if (error.message.includes('Failed to fetch')) {
-          throw new Error('Network error. Please check your internet connection and try again.');
-        } else {
-          throw new Error('All CORS proxies failed. Please try again later.');
-        }
-      }
+      lastError = error.message;
     }
+  }
+  
+  // If we get here, all proxies failed
+  console.error(`❌ All ${CORS_PROXIES.length} proxies failed. Last error:`, lastError);
+  
+  // Provide user-friendly error messages
+  if (lastError?.includes('404')) {
+    throw new Error('Player not found. Please check your Valorant Name and Tag ID.');
+  } else if (lastError?.includes('500')) {
+    throw new Error('Validation service is temporarily unavailable. Please try again later.');
+  } else if (lastError?.includes('Failed to fetch')) {
+    throw new Error('Network error. Please check your internet connection and try again.');
+  } else {
+    throw new Error(`Failed to validate Valorant profile after trying ${CORS_PROXIES.length} proxies. Please check your Name and Tag ID or try again later.`);
   }
 };
 
