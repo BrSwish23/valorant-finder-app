@@ -890,11 +890,11 @@ function App() {
         currentStatus={currentPlayerData?.status || status}
       />
 
-      {/* Debug Section - Only visible in development */}
-      {process.env.NODE_ENV === 'development' && (
+      {/* Debug Section - Temporarily enabled in production for testing */}
+      {true && (
         <div className="w-full max-w-4xl mx-auto px-4 mb-4">
           <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-4">
-            <h4 className="text-yellow-300 font-semibold mb-2">🔧 Debug Tools (Development Only)</h4>
+            <h4 className="text-yellow-300 font-semibold mb-2">🔧 Debug Tools (Testing Mode)</h4>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleTestMmrApi}

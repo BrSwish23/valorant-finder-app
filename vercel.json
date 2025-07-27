@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/validate-valorant-profile.js": {
+      "maxDuration": 30
+    }
+  }
+} 

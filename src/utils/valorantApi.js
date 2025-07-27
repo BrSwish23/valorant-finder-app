@@ -1,13 +1,5 @@
-// Valorant API utility functions using free CORS proxies
+// Valorant API utility functions using environment-appropriate endpoints
 import API_CONFIG from '../config/apiConfig';
-
-// Free CORS proxy services (no cost, no signup required)
-const CORS_PROXIES = [
-  'https://api.allorigins.win/raw?url=',
-  'https://thingproxy.freeboard.io/fetch/',
-  'https://api.codetabs.com/v1/proxy?quest=',
-  'https://cors-anywhere-me.herokuapp.com/',
-];
 
 // Extract profile image URL from various API response structures
 const extractProfileImageUrl = (apiData) => {
@@ -97,96 +89,119 @@ const formatRankForDisplay = (rank) => {
   return String(rank);
 };
 
-// Validate Valorant profile using free CORS proxies
+// Validate Valorant profile using dedicated Node.js backend
 const validateValorantProfile = async (valorantName, valorantTag) => {
   console.log(`🚀 Starting profile validation for ${valorantName}#${valorantTag}`);
+  console.log(`🌍 Environment: ${API_CONFIG.IS_DEVELOPMENT ? 'Development' : 'Production'}`);
+  console.log(`🔗 Backend URL: ${API_CONFIG.BACKEND_BASE_URL}`);
   
-  const baseUrl = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/${encodeURIComponent(valorantName)}/${encodeURIComponent(valorantTag)}`;
-  let lastError = null;
-  
-  // Try each CORS proxy
-  for (let i = 0; i < CORS_PROXIES.length; i++) {
-    const proxy = CORS_PROXIES[i];
-    let url;
+  try {
+    const backendUrl = `${API_CONFIG.BACKEND_BASE_URL}${API_CONFIG.VALIDATE_PROFILE_ENDPOINT}`;
+    console.log(`📡 Calling backend: ${backendUrl}`);
     
-    // Different proxies have different URL formats
-    if (proxy.includes('allorigins')) {
-      url = proxy + encodeURIComponent(baseUrl);
-    } else if (proxy.includes('codetabs')) {
-      url = proxy + encodeURIComponent(baseUrl);
-    } else {
-      url = proxy + baseUrl;
-    }
-    
-    try {
-      console.log(`📡 Attempting proxy ${i + 1}/${CORS_PROXIES.length}: ${proxy}`);
-       
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(proxy.includes('allorigins') ? {} : { 'Authorization': API_CONFIG.VALORANT_API_KEY })
-        }
-      });
+    const response = await fetch(backendUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        valorantName: valorantName.trim(),
+        valorantTag: valorantTag.trim()
+      })
+    });
 
-      if (response.ok) {
-        let responseData = await response.json();
-        
-        // Some proxies wrap the response, extract the actual data
-        if (responseData.contents) {
-          responseData = JSON.parse(responseData.contents);
-        }
-        
-        // Check if we have valid API response structure
-        if (!responseData || !responseData.data) {
-          console.warn(`⚠️ Invalid response structure from proxy ${i + 1}`);
-          continue;
-        }
-        
-        console.log(`✅ Success with proxy ${i + 1}:`, responseData);
-        
-        // Extract the data you need
-        const apiData = responseData.data;
-        const lifetimeStats = extractLifetimeStatsFromMmr(apiData);
-        const profileData = {
-          isValid: true,
-          valorantRank: extractRankFromApiData(apiData),
-          profilePhotoUrl: extractProfileImageUrl(apiData),
-          lifetimeWins: lifetimeStats.lifetimeWins,
-          lifetimeGamesPlayed: lifetimeStats.lifetimeGamesPlayed
-        };
-        
-        console.log('✅ Profile validation successful:', {
-          rank: profileData.valorantRank,
-          hasProfilePhoto: !!profileData.profilePhotoUrl,
-          lifetimeWins: profileData.lifetimeWins,
-          lifetimeGamesPlayed: profileData.lifetimeGamesPlayed
-        });
-        
-        return profileData;
-      } else {
-        console.warn(`❌ HTTP ${response.status} from proxy ${i + 1}`);
-        lastError = `HTTP ${response.status}: ${response.statusText}`;
+    console.log(`📥 Response status: ${response.status} ${response.statusText}`);
+
+    if (!response.ok) {
+      // If backend is not available, try fallback
+      if (response.status === 500 || response.status === 0) {
+        console.warn('⚠️ Backend not available, trying direct API fallback...');
+        return await validateViaDirectAPI(valorantName, valorantTag);
       }
-    } catch (error) {
-      console.warn(`❌ Proxy ${i + 1} failed:`, error.message);
-      lastError = error.message;
+      
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      console.error('❌ Backend API error:', errorData);
+      throw new Error(errorData.error || `Backend request failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.success || !result.data) {
+      console.error('❌ Invalid response from backend:', result);
+      throw new Error('Invalid response from validation service');
+    }
+
+    console.log('✅ Profile validation successful:', {
+      rank: result.data.valorantRank,
+      hasProfilePhoto: !!result.data.profilePhotoUrl,
+      lifetimeWins: result.data.lifetimeWins,
+      lifetimeGamesPlayed: result.data.lifetimeGamesPlayed
+    });
+
+    return result.data;
+
+  } catch (error) {
+    console.error('❌ Profile validation failed:', error);
+    
+    // Try fallback if backend fails
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      console.warn('⚠️ Network error, trying direct API fallback...');
+      try {
+        return await validateViaDirectAPI(valorantName, valorantTag);
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+      }
+    }
+    
+    // Provide user-friendly error messages
+    if (error.message.includes('404')) {
+      throw new Error('Player not found. Please check your Valorant Name and Tag ID.');
+    } else if (error.message.includes('500')) {
+      throw new Error('Validation service is temporarily unavailable. Please try again later.');
+    } else if (error.message.includes('Failed to fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    } else {
+      throw new Error(error.message || 'Failed to validate Valorant profile. Please try again.');
     }
   }
+};
+
+// Fallback function for direct API calls when serverless function isn't available
+const validateViaDirectAPI = async (valorantName, valorantTag) => {
+  console.log('🔧 Fallback: Using direct API call');
   
-  // If we get here, all proxies failed
-  console.error(`❌ All ${CORS_PROXIES.length} proxies failed. Last error:`, lastError);
+  const apiUrl = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/${encodeURIComponent(valorantName)}/${encodeURIComponent(valorantTag)}`;
   
-  // Provide user-friendly error messages
-  if (lastError?.includes('404')) {
-    throw new Error('Player not found. Please check your Valorant Name and Tag ID.');
-  } else if (lastError?.includes('500')) {
-    throw new Error('Validation service is temporarily unavailable. Please try again later.');
-  } else if (lastError?.includes('Failed to fetch')) {
-    throw new Error('Network error. Please check your internet connection and try again.');
-  } else {
-    throw new Error(`Failed to validate Valorant profile after trying ${CORS_PROXIES.length} proxies. Please check your Name and Tag ID or try again later.`);
+  const response = await fetch(apiUrl, {
+    method: 'GET',
+    headers: {
+      'Authorization': API_CONFIG.VALORANT_API_KEY,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`);
   }
+
+  const data = await response.json();
+  
+  // Process the data using helper functions
+  const lifetimeStats = extractLifetimeStatsFromMmr(data);
+  const processedData = {
+    valorantRank: extractRankFromApiData(data),
+    profilePhotoUrl: extractProfileImageUrl(data),
+    lifetimeWins: lifetimeStats.lifetimeWins,
+    lifetimeGamesPlayed: lifetimeStats.lifetimeGamesPlayed
+  };
+
+  return processedData;
 };
 
 // Update player profile with latest data
