@@ -45,7 +45,7 @@ const RedesignedPlayerCard = ({
     if (hasExistingChat) {
       return {
         text: 'Continue Chat',
-        className: 'flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2 text-sm',
+        className: 'w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2 text-sm',
         disabled: false,
         icon: (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -56,7 +56,7 @@ const RedesignedPlayerCard = ({
     } else if (hasRequestSent) {
       return {
         text: 'Request Sent',
-        className: 'flex-1 px-4 py-2 bg-gray-600 cursor-not-allowed text-gray-300 font-semibold rounded-lg border border-gray-500 flex items-center justify-center gap-2 text-sm',
+        className: 'w-full px-4 py-2 bg-gray-600 cursor-not-allowed text-gray-300 font-semibold rounded-lg border border-gray-500 flex items-center justify-center gap-2 text-sm',
         disabled: true,
         icon: (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -67,7 +67,7 @@ const RedesignedPlayerCard = ({
     } else {
       return {
         text: 'Send Request',
-        className: 'flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2 text-sm',
+        className: 'w-full px-4 py-2 bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2 text-sm',
         disabled: false,
         icon: (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,19 +114,7 @@ const RedesignedPlayerCard = ({
           </div>
         </div>
 
-        {/* Chat Button */}
-        <button
-          onClick={() => onChatClick(player)}
-          className="flex-shrink-0 p-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-blue-300 hover:text-blue-200 transition-all duration-200 group"
-          title={hasExistingChat ? "Continue conversation" : "Start chat"}
-        >
-          <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          {hasExistingChat && (
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-          )}
-        </button>
+
       </div>
 
       {/* Stats Grid */}
@@ -160,8 +148,8 @@ const RedesignedPlayerCard = ({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex gap-3">
+      {/* Action Button */}
+      <div className="w-full">
         <button
           onClick={() => !buttonConfig.disabled && onChatClick(player)}
           className={buttonConfig.className}
@@ -169,13 +157,6 @@ const RedesignedPlayerCard = ({
         >
           {buttonConfig.icon}
           {buttonConfig.text}
-        </button>
-
-        <button className="px-4 py-2 bg-gray-800/60 hover:bg-gray-700/60 border border-gray-600 text-gray-300 hover:text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          Profile
         </button>
       </div>
 
