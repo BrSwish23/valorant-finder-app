@@ -20,6 +20,7 @@ import ValorantProfileSetupModal from './components/ValorantProfileSetupModal';
 
 // Import API utilities
 import { validateValorantProfile, updatePlayerProfile, formatRankForDisplay, fetchLifetimeMatches } from './utils/valorantApi';
+import API_CONFIG from './config/apiConfig';
 
 const STATUS_OPTIONS = [
   { label: 'Looking to Queue', value: 'Looking to Queue' },
@@ -246,6 +247,19 @@ function App() {
   const handleTestMmrApi = async () => {
     try {
       console.log('🧪 Testing MMR API call with known player...');
+      console.log('🔍 API_CONFIG:', API_CONFIG);
+      console.log('🔗 Backend URL:', `${API_CONFIG.BACKEND_BASE_URL}${API_CONFIG.VALIDATE_PROFILE_ENDPOINT}`);
+      
+      // First test the backend health
+      console.log('🏥 Testing backend health...');
+      const healthResponse = await fetch(`${API_CONFIG.BACKEND_BASE_URL}/health`);
+      console.log('🏥 Health response:', healthResponse.status, healthResponse.statusText);
+      
+      if (healthResponse.ok) {
+        const healthData = await healthResponse.json();
+        console.log('🏥 Health data:', healthData);
+      }
+      
       const testData = await validateValorantProfile('TenZ', '0001');
       console.log('🎯 Test MMR API result:', testData);
       console.log('📊 Extracted data:', {
@@ -256,6 +270,7 @@ function App() {
       });
     } catch (error) {
       console.error('❌ Test MMR API failed:', error.message);
+      console.error('❌ Full error:', error);
     }
   };
 
@@ -797,7 +812,7 @@ function App() {
   // Show login page if not authenticated
   if (!authInitialized) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-white text-xl">Loading...</div>
       </div>
     );
@@ -825,7 +840,7 @@ function App() {
   // Show username modal if needed
   if (showUsernameModal) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 flex items-center justify-center p-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
           <h3 className="text-xl font-bold text-blue-400 mb-4 text-center">
             Welcome! Set Your Username
@@ -857,7 +872,7 @@ function App() {
 
   // Main redesigned app
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
+    <div className="min-h-screen">
       {/* Redesigned Header */}
       <RedesignedHeader
         username={username}

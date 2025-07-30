@@ -8,7 +8,7 @@ const API_CONFIG = {
   // Backend API endpoints
   BACKEND_BASE_URL: isDevelopment && isLocalhost 
     ? 'http://localhost:3001' // Local development backend
-    : 'https://your-backend-app.railway.app', // Production backend (update this URL after deployment)
+    : 'https://valorant-finder-backend.onrender.com', // Production backend on Render
   
   // Environment detection
   IS_DEVELOPMENT: isDevelopment && isLocalhost,
