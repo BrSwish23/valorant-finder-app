@@ -16,11 +16,13 @@ import RedesignedPlayersGrid from './components/RedesignedPlayersGrid';
 import ChatsListCard from './components/ChatsListCard';
 import ChatWindow from './components/ChatWindow';
 import MessageRequests from './components/MessageRequests';
+import UnreadMessagesModal from './components/UnreadMessagesModal';
 import ValorantProfileSetupModal from './components/ValorantProfileSetupModal';
 
 // Import API utilities
 import { validateValorantProfile, updatePlayerProfile, formatRankForDisplay, fetchLifetimeMatches } from './utils/valorantApi';
 import API_CONFIG from './config/apiConfig';
+import { debugLog, debugError } from './utils/debugUtils';
 
 const STATUS_OPTIONS = [
   { label: 'Looking to Queue', value: 'Looking to Queue' },
@@ -70,6 +72,14 @@ function App() {
   const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [userIdToUsername, setUserIdToUsername] = useState({});
   
+  // Unread message states
+  const [unreadConversationsCount, setUnreadConversationsCount] = useState(0);
+  const [unreadConversations, setUnreadConversations] = useState([]);
+  const [showUnreadModal, setShowUnreadModal] = useState(false);
+  
+  // Rate limiting state
+  const [isProfileUpdateInProgress, setIsProfileUpdateInProgress] = useState(false);
+  
   // User profile states
   const [username, setUsername] = useState('');
   const [showUsernameModal, setShowUsernameModal] = useState(false);
@@ -93,10 +103,10 @@ function App() {
 
   // Auth state listener
   useEffect(() => {
-    console.log('Setting up auth state listener');
+    debugLog('Setting up auth state listener');
     
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log('Auth state changed:', user ? `User: ${user.uid}` : 'No user');
+              debugLog('Auth state changed:', user ? `User: ${user.uid}` : 'No user');
       setAuthUser(user);
       setAuthInitialized(true);
       
@@ -110,7 +120,7 @@ function App() {
     });
 
     return () => {
-      console.log('Cleaning up auth state listener');
+      debugLog('Cleaning up auth state listener');
       unsubscribe();
     };
   }, []);
@@ -204,7 +214,7 @@ function App() {
     }
   };
 
-  // Player data listener
+  // Player data listener with stale data detection
   useEffect(() => {
     if (!authUser) return;
 
@@ -213,25 +223,53 @@ function App() {
     const unsubscribe = onSnapshot(playerRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        console.log('🔍 Current player data:', data);
+        debugLog('🔍 Current player data:', data);
         setCurrentPlayerData(data);
         setUsername(data.username || '');
         
+        // Check if profile data is stale (older than 2 hours)
+        const checkAndUpdateStaleProfile = async () => {
+          if (data.valorantName && data.valorantTag) {
+            const lastProfileUpdate = data.lastProfileUpdate?.toDate?.()?.getTime() || 0;
+            const currentTime = Date.now();
+            const twoHours = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+            
+            if (currentTime - lastProfileUpdate > twoHours) {
+                        debugLog('🔄 Profile data is stale (older than 2 hours), triggering immediate update...');
+          debugLog(`📅 Last update: ${new Date(lastProfileUpdate).toLocaleString()}`);
+          debugLog(`⏰ Current time: ${new Date(currentTime).toLocaleString()}`);
+              
+              try {
+                await performRateLimitedProfileUpdate(data.valorantName, data.valorantTag);
+                debugLog('✅ Stale profile updated successfully');
+              } catch (error) {
+                console.error('❌ Failed to update stale profile:', error.message);
+              }
+            } else {
+              debugLog('✅ Profile data is fresh (updated within 2 hours)');
+              debugLog(`📅 Last update: ${new Date(lastProfileUpdate).toLocaleString()}`);
+            }
+          }
+        };
+        
         // Show Valorant profile modal if username exists but no Valorant profile
         if (data.username && !data.valorantName && !data.valorantTag) {
-          console.log('📝 Showing Valorant profile modal - no valorantName/valorantTag found');
+          debugLog('📝 Showing Valorant profile modal - no valorantName/valorantTag found');
           setShowValorantProfileModal(true);
         } else if (data.valorantName && data.valorantTag) {
-          console.log('✅ Valorant profile found:', `${data.valorantName}#${data.valorantTag}`);
-          console.log('📊 Profile stats:', {
+                      debugLog('✅ Valorant profile found:', `${data.valorantName}#${data.valorantTag}`);
+            debugLog('📊 Profile stats:', {
             rank: data.valorantRank,
             wins: data.lifetimeWins,
             games: data.lifetimeGamesPlayed,
             winRate: data.lifetimeGamesPlayed > 0 ? (data.lifetimeWins / data.lifetimeGamesPlayed * 100).toFixed(1) + '%' : '0%'
           });
+          
+          // Check for stale data after a short delay to avoid blocking UI
+          setTimeout(checkAndUpdateStaleProfile, 2000);
         }
       } else {
-        console.log('❌ No player document found - showing username modal');
+        debugLog('❌ No player document found - showing username modal');
         setCurrentPlayerData(null);
         setShowUsernameModal(true);
       }
@@ -246,45 +284,45 @@ function App() {
   // Enhanced API test function for debugging
   const handleTestMmrApi = async () => {
     try {
-      console.log('🧪 Testing MMR API call with known player...');
-      console.log('🔍 API_CONFIG:', API_CONFIG);
-      console.log('🔗 Backend URL:', `${API_CONFIG.BACKEND_BASE_URL}${API_CONFIG.VALIDATE_PROFILE_ENDPOINT}`);
+      debugLog('🧪 Testing MMR API call with known player...');
+      debugLog('🔍 API_CONFIG:', API_CONFIG);
+      debugLog('🔗 Backend URL:', `${API_CONFIG.BACKEND_BASE_URL}${API_CONFIG.VALIDATE_PROFILE_ENDPOINT}`);
       
       // First test the backend health
-      console.log('🏥 Testing backend health...');
-      const healthResponse = await fetch(`${API_CONFIG.BACKEND_BASE_URL}/health`);
-      console.log('🏥 Health response:', healthResponse.status, healthResponse.statusText);
+              debugLog('🏥 Testing backend health...');
+        const healthResponse = await fetch(`${API_CONFIG.BACKEND_BASE_URL}/health`);
+        debugLog('🏥 Health response:', healthResponse.status, healthResponse.statusText);
       
       if (healthResponse.ok) {
         const healthData = await healthResponse.json();
-        console.log('🏥 Health data:', healthData);
+                  debugLog('🏥 Health data:', healthData);
       }
       
       const testData = await validateValorantProfile('TenZ', '0001');
-      console.log('🎯 Test MMR API result:', testData);
-      console.log('📊 Extracted data:', {
+              debugLog('🎯 Test MMR API result:', testData);
+        debugLog('📊 Extracted data:', {
         rank: testData.valorantRank,
         wins: testData.lifetimeWins,
         games: testData.lifetimeGamesPlayed,
         winRate: testData.lifetimeGamesPlayed > 0 ? Math.round((testData.lifetimeWins / testData.lifetimeGamesPlayed) * 100) : 0
       });
     } catch (error) {
-      console.error('❌ Test MMR API failed:', error.message);
-      console.error('❌ Full error:', error);
+      debugError('❌ Test MMR API failed:', error.message);
+      debugError('❌ Full error:', error);
     }
   };
 
   // Test current user's profile update
   const handleTestCurrentUserProfile = async () => {
     if (!currentPlayerData?.valorantName || !currentPlayerData?.valorantTag) {
-      console.error('❌ No current user Valorant profile found');
+      debugError('❌ No current user Valorant profile found');
       return;
     }
     
     try {
-      console.log(`🧪 Testing profile update for current user: ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}`);
-      const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
-      console.log('🎯 Current user profile update result:', updatedData);
+              debugLog(`🧪 Testing profile update for current user: ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}`);
+        const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
+        debugLog('🎯 Current user profile update result:', updatedData);
       
       // Actually update the profile in Firestore for testing
       const updatePayload = {
@@ -295,17 +333,17 @@ function App() {
       
       const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
       await updateDoc(playerRef, updatePayload);
-      console.log('✅ Test profile update saved to Firestore');
+              debugLog('✅ Test profile update saved to Firestore');
       
     } catch (error) {
-      console.error('❌ Current user profile test failed:', error.message);
+              debugError('❌ Current user profile test failed:', error.message);
     }
   };
 
   // Direct API test without CORS proxy
   const handleTestDirectApi = async () => {
     try {
-      console.log('🧪 Testing DIRECT API call (will likely fail due to CORS)...');
+              debugLog('🧪 Testing DIRECT API call (will likely fail due to CORS)...');
       const url = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/TenZ/0001`;
       
       const response = await fetch(url, {
@@ -316,11 +354,11 @@ function App() {
         }
       });
       
-      console.log('📥 Direct API Response status:', response.status);
-      const data = await response.json();
-      console.log('📊 Direct API Response data:', data);
+              debugLog('📥 Direct API Response status:', response.status);
+        const data = await response.json();
+        debugLog('📊 Direct API Response data:', data);
     } catch (error) {
-      console.error('❌ Direct API failed (expected due to CORS):', error.message);
+              debugError('❌ Direct API failed (expected due to CORS):', error.message);
     }
   };
 
@@ -392,32 +430,30 @@ function App() {
   useEffect(() => {
     if (!authUser || !currentPlayerData?.valorantName || !currentPlayerData?.valorantTag) return;
 
+            debugLog('🔄 Setting up periodic profile updates...');
+        debugLog(`👤 User: ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}`);
+        debugLog('⏰ Update interval: 1 hour (rate limited to respect API limits)');
+        debugLog('🛡️ Rate limiting: Maximum 1 update per hour per user');
+
     let retryCount = 0;
-    const maxRetries = 3;
-    const baseInterval = 15 * 60 * 1000; // 15 minutes
+    const maxRetries = 2; // Reduced from 3 to 2
+    const baseInterval = 60 * 60 * 1000; // 1 hour (increased from 15 minutes)
     
     const performUpdate = async (isRetry = false) => {
       try {
-        console.log(`🔄 ${isRetry ? 'Retrying' : 'Performing'} periodic profile update for ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}...`);
-        const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
+        debugLog(`🔄 ${isRetry ? 'Retrying' : 'Performing'} periodic profile update for ${currentPlayerData.valorantName}#${currentPlayerData.valorantTag}...`);
         
-        // Add serverTimestamp for lastProfileUpdate
-        const updatePayload = {
-          ...updatedData,
-          lastProfileUpdate: serverTimestamp(),
-          lastUpdated: serverTimestamp()
-        };
+        // Check if we need to update (avoid unnecessary API calls)
+        const lastUpdate = currentPlayerData.lastProfileUpdate?.toDate?.()?.getTime() || 0;
+        const currentTime = Date.now();
+        const timeSinceLastUpdate = currentTime - lastUpdate;
         
-        const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
-        await updateDoc(playerRef, updatePayload);
+        if (timeSinceLastUpdate < baseInterval && !isRetry) {
+                      debugLog(`⏭️ Skipping update - last update was ${Math.round(timeSinceLastUpdate / 60000)} minutes ago`);
+          return;
+        }
         
-        console.log('✅ Periodic profile update completed successfully');
-        console.log('📊 Updated data:', {
-          rank: updatedData.valorantRank,
-          wins: updatedData.lifetimeWins,
-          games: updatedData.lifetimeGamesPlayed,
-          winRate: updatedData.lifetimeWinRate
-        });
+        await performRateLimitedProfileUpdate(currentPlayerData.valorantName, currentPlayerData.valorantTag);
         
         // Reset retry count on success
         retryCount = 0;
@@ -434,7 +470,7 @@ function App() {
         // Retry with exponential backoff if under max retries
         if (retryCount <= maxRetries) {
           const retryDelay = Math.min(60000 * Math.pow(2, retryCount - 1), 300000); // Max 5 minutes
-          console.log(`🔄 Scheduling retry ${retryCount}/${maxRetries} in ${retryDelay / 1000} seconds...`);
+                      debugLog(`🔄 Scheduling retry ${retryCount}/${maxRetries} in ${retryDelay / 1000} seconds...`);
           setTimeout(() => performUpdate(true), retryDelay);
         } else {
           console.error(`❌ Max retries (${maxRetries}) exceeded for profile update`);
@@ -443,10 +479,10 @@ function App() {
       }
     };
 
-    // Initial update after 1 minute (to avoid immediate load)
-    const initialTimeout = setTimeout(() => performUpdate(), 60000);
+    // Initial update after 5 minutes (to avoid immediate load and reduce API calls)
+    const initialTimeout = setTimeout(() => performUpdate(), 5 * 60000);
     
-    // Regular interval updates
+    // Regular interval updates (every 1 hour)
     const interval = setInterval(() => performUpdate(), baseInterval);
 
     return () => {
@@ -474,6 +510,12 @@ function App() {
         ...doc.data()
       }));
       setUserChats(chatsList);
+      
+      // Calculate unread conversations
+      const { count, conversations } = calculateUnreadConversations(chatsList);
+      setUnreadConversationsCount(count);
+      setUnreadConversations(conversations);
+      
       setChatsLoading(false);
     }, (error) => {
       console.error('Error listening to chats:', error);
@@ -543,6 +585,9 @@ function App() {
         ...doc.data()
       }));
       setChatMessages(messagesList);
+      
+      // Mark chat as read when messages are loaded
+      markChatAsRead(activeChat.id);
     }, (error) => {
       console.error('Error listening to messages:', error);
       setError('Failed to load messages: ' + error.message);
@@ -590,12 +635,12 @@ function App() {
 
     setValorantProfileLoading(true);
     try {
-      console.log('🔍 Step 1: Validating Valorant profile...');
+      debugLog('🔍 Step 1: Validating Valorant profile...');
       const validatedData = await validateValorantProfile(valorantName, valorantTag);
-      console.log('✅ Step 1 Complete: Profile validation successful');
-      console.log('📊 Validated data:', validatedData);
+      debugLog('✅ Step 1 Complete: Profile validation successful');
+      debugLog('📊 Validated data:', validatedData);
 
-      console.log('💾 Step 2: Saving to Firestore...');
+              debugLog('💾 Step 2: Saving to Firestore...');
       const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
       
       // Calculate lifetime win rate
@@ -617,15 +662,15 @@ function App() {
         lastProfileUpdate: serverTimestamp()
       };
 
-      console.log('📝 Data to save:', updateData);
+              debugLog('📝 Data to save:', updateData);
       
       await updateDoc(playerRef, updateData);
-      console.log('✅ Step 2 Complete: Firestore save successful');
+              debugLog('✅ Step 2 Complete: Firestore save successful');
 
       setShowValorantProfileModal(false);
-      console.log('🎉 Valorant profile setup completed successfully!');
+              debugLog('🎉 Valorant profile setup completed successfully!');
     } catch (error) {
-      console.error('❌ Valorant profile setup failed:', error);
+              debugError('❌ Valorant profile setup failed:', error);
       
       // Distinguish between validation errors and Firebase errors
       if (error.message.includes('Failed to validate Valorant profile')) {
@@ -689,6 +734,8 @@ function App() {
 
       if (existingChat) {
         setActiveChat(existingChat);
+        // Mark messages as read when opening chat
+        await markChatAsRead(existingChat.id);
         return;
       }
 
@@ -723,7 +770,11 @@ function App() {
         createdAt: serverTimestamp(),
         lastUpdated: serverTimestamp(),
         lastMessage: '',
-        lastMessageBy: ''
+        lastMessageBy: '',
+        participantReadStatus: {
+          [authUser.uid]: serverTimestamp(),
+          [player.userId]: null
+        }
       });
 
       // Update sent requests state
@@ -746,7 +797,11 @@ function App() {
       const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', request.id);
       await updateDoc(chatRef, {
         status: 'active',
-        lastUpdated: serverTimestamp()
+        lastUpdated: serverTimestamp(),
+        participantReadStatus: {
+          [authUser.uid]: serverTimestamp(),
+          [request.requestedBy]: null
+        }
       });
 
       // Remove from pending requests and add to active chats
@@ -778,6 +833,103 @@ function App() {
     }
   };
 
+  // Mark chat as read for current user
+  const markChatAsRead = async (chatId) => {
+    if (!authUser) return;
+    
+    try {
+      const chatRef = doc(db, 'artifacts/valorant-finder/public/data/chats', chatId);
+      await updateDoc(chatRef, {
+        [`participantReadStatus.${authUser.uid}`]: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error marking chat as read:', error);
+    }
+  };
+
+  // Calculate unread conversations
+  const calculateUnreadConversations = (chats) => {
+    if (!authUser) return { count: 0, conversations: [] };
+    
+    const unread = chats.filter(chat => {
+      const lastMessageAt = chat.lastMessageAt?.toDate?.()?.getTime() || 0;
+      const lastReadAt = chat.participantReadStatus?.[authUser.uid]?.toDate?.()?.getTime() || 0;
+      return lastMessageAt > lastReadAt;
+    });
+    
+    return {
+      count: unread.length,
+      conversations: unread
+    };
+  };
+
+  // Handle opening unread messages modal
+  const handleShowUnreadMessages = () => {
+    setShowUnreadModal(true);
+  };
+
+  // Handle clicking on unread conversation
+  const handleUnreadChatClick = async (chat) => {
+    setActiveChat(chat);
+    setShowUnreadModal(false);
+    await markChatAsRead(chat.id);
+  };
+
+  // Rate-limited profile update function
+  const performRateLimitedProfileUpdate = async (valorantName, valorantTag, isForceUpdate = false) => {
+    if (isProfileUpdateInProgress && !isForceUpdate) {
+              debugLog('⏸️ Profile update already in progress, skipping...');
+      return;
+    }
+    
+    setIsProfileUpdateInProgress(true);
+    
+    try {
+      debugLog(`🔄 Starting profile update for ${valorantName}#${valorantTag}...`);
+      const updatedData = await updatePlayerProfile(valorantName, valorantTag);
+      
+      const updatePayload = {
+        ...updatedData,
+        lastProfileUpdate: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      };
+      
+      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
+      await updateDoc(playerRef, updatePayload);
+      
+              debugLog('✅ Profile update completed successfully');
+        debugLog('📊 Updated data:', {
+        rank: updatedData.valorantRank,
+        wins: updatedData.lifetimeWins,
+        games: updatedData.lifetimeGamesPlayed,
+        winRate: updatedData.lifetimeWinRate
+      });
+      
+    } catch (error) {
+              debugError('❌ Profile update failed:', error.message);
+      throw error;
+    } finally {
+      setIsProfileUpdateInProgress(false);
+    }
+  };
+
+  // Get profile update status for debugging
+  const getProfileUpdateStatus = () => {
+    if (!currentPlayerData?.lastProfileUpdate) {
+      return 'Never updated';
+    }
+    
+    const lastUpdate = currentPlayerData.lastProfileUpdate.toDate?.()?.getTime() || 0;
+    const currentTime = Date.now();
+    const timeSinceUpdate = currentTime - lastUpdate;
+    const minutesAgo = Math.round(timeSinceUpdate / 60000);
+    
+    if (minutesAgo < 1) return 'Just now';
+    if (minutesAgo < 60) return `${minutesAgo} minutes ago`;
+    if (minutesAgo < 1440) return `${Math.round(minutesAgo / 60)} hours ago`;
+    return `${Math.round(minutesAgo / 1440)} days ago`;
+  };
+
   const handleSendMessage = async () => {
     if (!chatMessage.trim() || !activeChat) return;
 
@@ -797,7 +949,8 @@ function App() {
       await updateDoc(chatRef, {
         lastMessage: chatMessage.trim(),
         lastMessageBy: authUser.uid,
-        lastUpdated: serverTimestamp()
+        lastUpdated: serverTimestamp(),
+        lastMessageAt: serverTimestamp()
       });
 
       setChatMessage('');
@@ -884,6 +1037,8 @@ function App() {
         loading={authLoading}
         messageRequestsCount={messageRequests.length}
         onShowRequests={() => setShowRequestsModal(true)}
+        unreadConversationsCount={unreadConversationsCount}
+        onShowUnreadMessages={handleShowUnreadMessages}
       />
 
       {/* Main Landing Banner */}
@@ -905,11 +1060,11 @@ function App() {
         currentStatus={currentPlayerData?.status || status}
       />
 
-      {/* Debug Section - Temporarily enabled in production for testing */}
-      {true && (
+      {/* Debug Section - Only visible on localhost */}
+      {API_CONFIG.IS_DEVELOPMENT && (
         <div className="w-full max-w-4xl mx-auto px-4 mb-4">
           <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-4">
-            <h4 className="text-yellow-300 font-semibold mb-2">🔧 Debug Tools (Testing Mode)</h4>
+            <h4 className="text-yellow-300 font-semibold mb-2">🔧 Debug Tools (Development Mode)</h4>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleTestMmrApi}
@@ -933,18 +1088,32 @@ function App() {
                 <button
                   onClick={async () => {
                     try {
-                      console.log('🔄 Refreshing profile data...');
-                      const updatedData = await updatePlayerProfile(currentPlayerData.valorantName, currentPlayerData.valorantTag);
-                      const playerRef = doc(db, 'artifacts/valorant-finder/public/data/players', authUser.uid);
-                      await updateDoc(playerRef, updatedData);
-                      console.log('✅ Profile refreshed');
+                      debugLog('🔄 Manually refreshing profile data...');
+                      await performRateLimitedProfileUpdate(currentPlayerData.valorantName, currentPlayerData.valorantTag, true);
+                      debugLog('✅ Profile refreshed manually');
                     } catch (error) {
-                      console.error('❌ Profile refresh failed:', error);
+                                              debugError('❌ Manual profile refresh failed:', error);
                     }
                   }}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
                 >
-                  Refresh Profile Data
+                  🔄 Refresh Profile Data
+                </button>
+              )}
+              {currentPlayerData?.valorantName && currentPlayerData?.valorantTag && (
+                <button
+                  onClick={async () => {
+                    try {
+                      debugLog('🚀 Force updating profile data (ignoring last update time)...');
+                      await performRateLimitedProfileUpdate(currentPlayerData.valorantName, currentPlayerData.valorantTag, true);
+                      debugLog('✅ Force profile update completed');
+                    } catch (error) {
+                                              debugError('❌ Force profile update failed:', error);
+                    }
+                  }}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm"
+                >
+                  ⚡ Force Update Now
                 </button>
               )}
               <button
@@ -969,6 +1138,25 @@ function App() {
             <div className="mt-2 text-xs text-yellow-200">
               Check browser console for detailed logs. If you see Firebase permission errors, contact support.
             </div>
+            {currentPlayerData?.valorantName && currentPlayerData?.valorantTag && (
+              <div className="mt-4 p-3 bg-gray-800/50 rounded-lg border border-gray-600">
+                <h5 className="text-yellow-300 font-semibold mb-2">📊 Profile Update Status</h5>
+                <div className="text-xs text-gray-300 space-y-1">
+                  <div><strong>Player:</strong> {currentPlayerData.valorantName}#{currentPlayerData.valorantTag}</div>
+                  <div><strong>Last Update:</strong> {getProfileUpdateStatus()}</div>
+                  <div><strong>Current Rank:</strong> {currentPlayerData.valorantRank || 'Unknown'}</div>
+                  <div><strong>Win Rate:</strong> {currentPlayerData.lifetimeGamesPlayed > 0 ? Math.round((currentPlayerData.lifetimeWins / currentPlayerData.lifetimeGamesPlayed) * 100) : 0}%</div>
+                  <div><strong>Games Played:</strong> {currentPlayerData.lifetimeGamesPlayed || 0}</div>
+                  <div><strong>Update Status:</strong> 
+                    {isProfileUpdateInProgress ? (
+                      <span className="text-yellow-400">🔄 In Progress</span>
+                    ) : (
+                      <span className="text-green-400">✅ Idle</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -999,6 +1187,11 @@ function App() {
         chatRequestsSent={chatRequestsSent}
         rankFilter={rankFilter}
         loading={playersLoading}
+        unreadChats={unreadConversations.reduce((acc, chat) => {
+          const otherUserId = chat.participants.find(id => id !== authUser.uid);
+          if (otherUserId) acc[otherUserId] = chat.id;
+          return acc;
+        }, {})}
       />
 
       {/* Chat Modal */}
@@ -1030,6 +1223,17 @@ function App() {
           onAcceptRequest={handleAcceptRequest}
           onDeclineRequest={handleDeclineRequest}
           onClose={() => setShowRequestsModal(false)}
+        />
+      )}
+
+      {/* Unread Messages Modal */}
+      {showUnreadModal && (
+        <UnreadMessagesModal
+          unreadConversations={unreadConversations}
+          loading={chatsLoading}
+          userIdToUsername={userIdToUsername}
+          onChatClick={handleUnreadChatClick}
+          onClose={() => setShowUnreadModal(false)}
         />
       )}
 

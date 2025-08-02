@@ -116,7 +116,7 @@ const RankFilterSection = ({ onFilterChange, selectedFilter = 'all' }) => {
           {/* Search Button */}
           <button
             onClick={() => {
-              console.log('🔍 Apply Filter clicked:', selectedFilter);
+              // Debug logging removed for production
               onFilterChange(selectedFilter);
             }}
             className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center gap-2"

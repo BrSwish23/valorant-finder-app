@@ -9,7 +9,9 @@ const RedesignedHeader = ({
   onLogout, 
   loading,
   messageRequestsCount = 0,
-  onShowRequests
+  onShowRequests,
+  unreadConversationsCount = 0,
+  onShowUnreadMessages
 }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef(null);
@@ -69,6 +71,23 @@ const RedesignedHeader = ({
 
           {/* Right Side - Message Requests & User Profile */}
           <div className="flex items-center space-x-4">
+            {/* Received Messages Button */}
+            {onShowUnreadMessages && (
+              <button
+                onClick={onShowUnreadMessages}
+                className="relative p-2 bg-gray-800/60 hover:bg-gray-700/60 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                {unreadConversationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-bold">
+                    {unreadConversationsCount > 9 ? '9+' : unreadConversationsCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Message Requests Button */}
             {onShowRequests && (
               <button

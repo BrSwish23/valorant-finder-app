@@ -9,7 +9,8 @@ const RedesignedPlayersGrid = ({
   existingChats = {},
   chatRequestsSent = {},
   rankFilter = 'all',
-  loading = false 
+  loading = false,
+  unreadChats = {}
 }) => {
   // First filter out offline players, then filter by rank
   const onlinePlayers = players.filter(player => player.isOnline && player.displayStatus !== 'Offline');
@@ -120,6 +121,7 @@ const RedesignedPlayersGrid = ({
             onChatClick={onChatClick}
             existingChatId={existingChats[player.userId] || null}
             hasRequestSent={!!chatRequestsSent[player.userId]}
+            hasUnreadMessages={!!unreadChats[player.userId]}
           />
         ))}
       </div>

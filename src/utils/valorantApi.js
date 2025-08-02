@@ -1,5 +1,6 @@
 // Valorant API utility functions using environment-appropriate endpoints
 import API_CONFIG from '../config/apiConfig';
+import { debugLog, debugError } from './debugUtils';
 
 // Extract profile image URL from various API response structures
 const extractProfileImageUrl = (apiData) => {
@@ -22,7 +23,7 @@ const extractProfileImageUrl = (apiData) => {
     
     return null;
   } catch (error) {
-    console.error('Error extracting profile image URL:', error);
+    debugError('Error extracting profile image URL:', error);
     return null;
   }
 };
@@ -38,7 +39,7 @@ const extractRankFromApiData = (apiData) => {
     }
     return null;
   } catch (error) {
-    console.error('Error extracting rank from API data:', error);
+    debugError('Error extracting rank from API data:', error);
     return null;
   }
 };
@@ -51,7 +52,7 @@ const extractLifetimeStatsFromMmr = (apiData) => {
 
     // Check if by_season data exists
     if (apiData?.by_season && typeof apiData.by_season === 'object') {
-      console.log('Found by_season data, calculating lifetime stats...');
+      debugLog('Found by_season data, calculating lifetime stats...');
       
       // Iterate through each season
       Object.keys(apiData.by_season).forEach(seasonKey => {
@@ -64,15 +65,15 @@ const extractLifetimeStatsFromMmr = (apiData) => {
           totalWins += wins;
           totalGames += games;
           
-          console.log(`Season ${seasonKey}: ${wins} wins out of ${games} games`);
+          debugLog(`Season ${seasonKey}: ${wins} wins out of ${games} games`);
         }
       });
     }
 
-    console.log(`Total lifetime stats: ${totalWins} wins out of ${totalGames} games`);
+    debugLog(`Total lifetime stats: ${totalWins} wins out of ${totalGames} games`);
     return { lifetimeWins: totalWins, lifetimeGamesPlayed: totalGames };
   } catch (error) {
-    console.error('Error extracting lifetime stats from MMR data:', error);
+    debugError('Error extracting lifetime stats from MMR data:', error);
     return { lifetimeWins: 0, lifetimeGamesPlayed: 0 };
   }
 };
@@ -91,13 +92,13 @@ const formatRankForDisplay = (rank) => {
 
 // Validate Valorant profile using dedicated Node.js backend
 const validateValorantProfile = async (valorantName, valorantTag) => {
-  console.log(`🚀 Starting profile validation for ${valorantName}#${valorantTag}`);
-  console.log(`🌍 Environment: ${API_CONFIG.IS_DEVELOPMENT ? 'Development' : 'Production'}`);
-  console.log(`🔗 Backend URL: ${API_CONFIG.BACKEND_BASE_URL}`);
+  debugLog(`🚀 Starting profile validation for ${valorantName}#${valorantTag}`);
+  debugLog(`🌍 Environment: ${API_CONFIG.IS_DEVELOPMENT ? 'Development' : 'Production'}`);
+  debugLog(`🔗 Backend URL: ${API_CONFIG.BACKEND_BASE_URL}`);
   
   try {
     const backendUrl = `${API_CONFIG.BACKEND_BASE_URL}${API_CONFIG.VALIDATE_PROFILE_ENDPOINT}`;
-    console.log(`📡 Calling backend: ${backendUrl}`);
+    debugLog(`📡 Calling backend: ${backendUrl}`);
     
     const response = await fetch(backendUrl, {
       method: 'POST',
@@ -110,12 +111,12 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
       })
     });
 
-    console.log(`📥 Response status: ${response.status} ${response.statusText}`);
+    debugLog(`📥 Response status: ${response.status} ${response.statusText}`);
 
     if (!response.ok) {
       // If backend is not available, try fallback
       if (response.status === 500 || response.status === 0) {
-        console.warn('⚠️ Backend not available, trying direct API fallback...');
+        debugLog('⚠️ Backend not available, trying direct API fallback...');
         return await validateViaDirectAPI(valorantName, valorantTag);
       }
       
@@ -126,18 +127,18 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
         errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
       }
       
-      console.error('❌ Backend API error:', errorData);
+      debugError('❌ Backend API error:', errorData);
       throw new Error(errorData.error || `Backend request failed: ${response.status}`);
     }
 
     const result = await response.json();
     
     if (!result.success || !result.data) {
-      console.error('❌ Invalid response from backend:', result);
+      debugError('❌ Invalid response from backend:', result);
       throw new Error('Invalid response from validation service');
     }
 
-    console.log('✅ Profile validation successful:', {
+    debugLog('✅ Profile validation successful:', {
       rank: result.data.valorantRank,
       hasProfilePhoto: !!result.data.profilePhotoUrl,
       lifetimeWins: result.data.lifetimeWins,
@@ -147,15 +148,15 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
     return result.data;
 
   } catch (error) {
-    console.error('❌ Profile validation failed:', error);
+    debugError('❌ Profile validation failed:', error);
     
     // Try fallback if backend fails
     if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-      console.warn('⚠️ Network error, trying direct API fallback...');
+      debugLog('⚠️ Network error, trying direct API fallback...');
       try {
         return await validateViaDirectAPI(valorantName, valorantTag);
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        debugError('❌ Fallback also failed:', fallbackError);
       }
     }
     
@@ -174,7 +175,7 @@ const validateValorantProfile = async (valorantName, valorantTag) => {
 
 // Fallback function for direct API calls when serverless function isn't available
 const validateViaDirectAPI = async (valorantName, valorantTag) => {
-  console.log('🔧 Fallback: Using direct API call');
+  debugLog('🔧 Fallback: Using direct API call');
   
   const apiUrl = `https://api.henrikdev.xyz/valorant/v2/mmr/AP/${encodeURIComponent(valorantName)}/${encodeURIComponent(valorantTag)}`;
   
@@ -207,7 +208,7 @@ const validateViaDirectAPI = async (valorantName, valorantTag) => {
 // Update player profile with latest data
 const updatePlayerProfile = async (valorantName, valorantTag) => {
   try {
-    console.log(`🔄 Updating profile for ${valorantName}#${valorantTag}`);
+    debugLog(`🔄 Updating profile for ${valorantName}#${valorantTag}`);
     
     const profileData = await validateValorantProfile(valorantName, valorantTag);
     
@@ -217,7 +218,7 @@ const updatePlayerProfile = async (valorantName, valorantTag) => {
       lifetimeWinRate = Math.round((profileData.lifetimeWins / profileData.lifetimeGamesPlayed) * 100);
     }
     
-    console.log(`📊 Profile update completed - Wins: ${profileData.lifetimeWins}, Games: ${profileData.lifetimeGamesPlayed}, Win Rate: ${lifetimeWinRate}%`);
+    debugLog(`📊 Profile update completed - Wins: ${profileData.lifetimeWins}, Games: ${profileData.lifetimeGamesPlayed}, Win Rate: ${lifetimeWinRate}%`);
     
     return {
       valorantRank: profileData.valorantRank,
@@ -228,7 +229,7 @@ const updatePlayerProfile = async (valorantName, valorantTag) => {
       // Note: lastProfileUpdate will be set to serverTimestamp() in the calling function
     };
   } catch (error) {
-    console.error('❌ Error updating player profile:', error);
+    debugError('❌ Error updating player profile:', error);
     throw error;
   }
 };
@@ -345,7 +346,7 @@ const getRankTier = (rank) => {
 
 // Placeholder function for fetchLifetimeMatches (if needed by App.js)
 const fetchLifetimeMatches = async (valorantName, valorantTag) => {
-  console.log('fetchLifetimeMatches called - this is a placeholder function');
+  debugLog('fetchLifetimeMatches called - this is a placeholder function');
   return { matches: [], totalMatches: 0 };
 };
 
