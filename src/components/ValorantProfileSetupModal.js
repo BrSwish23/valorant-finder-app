@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-const ValorantProfileSetupModal = ({ onSave, onCancel, loading = false }) => {
+const ValorantProfileSetupModal = ({ 
+  onSave, 
+  onCancel, 
+  loading = false, 
+  isEditMode = false,
+  currentValorantName = '',
+  currentValorantTag = ''
+}) => {
   const [valorantName, setValorantName] = useState('');
   const [valorantTag, setValorantTag] = useState('');
   const [error, setError] = useState('');
   const [validating, setValidating] = useState(false);
+
+  // Pre-populate fields when in edit mode
+  useEffect(() => {
+    if (isEditMode) {
+      setValorantName(currentValorantName);
+      setValorantTag(currentValorantTag);
+    }
+  }, [isEditMode, currentValorantName, currentValorantTag]);
 
   // Validate inputs
   const validateInputs = () => {
@@ -58,15 +73,33 @@ const ValorantProfileSetupModal = ({ onSave, onCancel, loading = false }) => {
     }
   };
 
+  const getTitle = () => {
+    return isEditMode ? 'Edit Valorant Profile' : 'Link Your Valorant Profile';
+  };
+
+  const getButtonText = () => {
+    if (validating) {
+      return 'Verifying...';
+    }
+    return isEditMode ? 'Update Profile' : 'Verify & Continue';
+  };
+
+  const getDescription = () => {
+    if (isEditMode) {
+      return 'Update your Valorant in-game name and tag to keep your profile current.';
+    }
+    return 'Enter your Valorant in-game name and tag to link your profile.';
+  };
+
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-70">
       <div className="bg-gray-900 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700 flex flex-col">
         <h3 className="text-xl font-bold text-blue-400 mb-4 text-center">
-          Link Your Valorant Profile
+          {getTitle()}
         </h3>
         
         <div className="mb-4 text-sm text-gray-300">
-          <p className="mb-2">Enter your Valorant in-game name and tag to link your profile.</p>
+          <p className="mb-2">{getDescription()}</p>
           <p className="text-xs text-gray-400">
             Example: If your in-game name is "Kakashi1425#8516", enter "Kakashi1425" as name and "8516" as tag.
           </p>
@@ -133,7 +166,7 @@ const ValorantProfileSetupModal = ({ onSave, onCancel, loading = false }) => {
                 Verifying...
               </>
             ) : (
-              'Verify & Continue'
+              getButtonText()
             )}
           </button>
           

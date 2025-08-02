@@ -44,6 +44,7 @@ function App() {
   
   // App states
   const [error, _setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const setError = (msg) => {
     console.trace('setError called (global catch-all):', msg);
     _setError(msg);
@@ -91,6 +92,7 @@ function App() {
   // Valorant profile states
   const [showValorantProfileModal, setShowValorantProfileModal] = useState(false);
   const [valorantProfileLoading, setValorantProfileLoading] = useState(false);
+  const [isEditProfileMode, setIsEditProfileMode] = useState(false);
 
   // New redesign states
   const [rankFilter, setRankFilter] = useState('all');
@@ -668,6 +670,14 @@ function App() {
               debugLog('✅ Step 2 Complete: Firestore save successful');
 
       setShowValorantProfileModal(false);
+      setIsEditProfileMode(false);
+      
+      // Show success message
+      if (isEditProfileMode) {
+        setSuccess('Profile updated successfully!');
+        setTimeout(() => setSuccess(null), 3000); // Auto-hide after 3 seconds
+      }
+      
               debugLog('🎉 Valorant profile setup completed successfully!');
     } catch (error) {
               debugError('❌ Valorant profile setup failed:', error);
@@ -686,6 +696,17 @@ function App() {
     } finally {
       setValorantProfileLoading(false);
     }
+  };
+
+  // Edit profile handlers
+  const handleEditProfile = () => {
+    setIsEditProfileMode(true);
+    setShowValorantProfileModal(true);
+  };
+
+  const handleCancelProfileModal = () => {
+    setShowValorantProfileModal(false);
+    setIsEditProfileMode(false);
   };
 
   // Status change handler
@@ -1058,6 +1079,7 @@ function App() {
         lifetimeGamesPlayed={currentPlayerData?.lifetimeGamesPlayed || 0}
         onlinePlayersCount={onlinePlayersCount}
         currentStatus={currentPlayerData?.status || status}
+        onEditProfile={handleEditProfile}
       />
 
       {/* Debug Section - Only visible on localhost */}
@@ -1241,8 +1263,11 @@ function App() {
       {showValorantProfileModal && (
         <ValorantProfileSetupModal
           onSave={handleSaveValorantProfile}
-          onCancel={() => setShowValorantProfileModal(false)}
+          onCancel={handleCancelProfileModal}
           loading={valorantProfileLoading}
+          isEditMode={isEditProfileMode}
+          currentValorantName={currentPlayerData?.valorantName || ''}
+          currentValorantTag={currentPlayerData?.valorantTag || ''}
         />
       )}
 
@@ -1253,6 +1278,21 @@ function App() {
             <span>{error}</span>
             <button
               onClick={() => setError(null)}
+              className="ml-4 text-white hover:text-gray-200"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success Display */}
+      {success && (
+        <div className="fixed bottom-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50">
+          <div className="flex items-center justify-between">
+            <span>{success}</span>
+            <button
+              onClick={() => setSuccess(null)}
               className="ml-4 text-white hover:text-gray-200"
             >
               ×
