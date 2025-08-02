@@ -171,6 +171,7 @@ const RedesignedHeader = ({
 
                   {/* Menu Items */}
                   <div className="py-1">
+                    {/* View Profile - Hidden for future implementation
                     <button 
                       onClick={(e) => {
                         e.preventDefault();
@@ -201,6 +202,7 @@ const RedesignedHeader = ({
                     </button>
 
                     <div className="border-t border-gray-700 my-1"></div>
+                    */}
 
                     <button
                       onClick={(e) => {
